@@ -21,6 +21,9 @@ policy enforced before the provider is touched, native streaming relayed and met
 **[IMPLEMENTATION.md](./IMPLEMENTATION.md)** for what's real and what's still stubbed. Treat every
 detail as provisional until `v1`; issues and pushback welcome.
 
+Want to **use** it (bring your own key) or **integrate** it (build on it as an app)? Start with the
+**[Usage & Integration Guide](./GUIDE.md)** (中英双语).
+
 ## Why bother
 
 The thing that finally convinced me this needs to be a protocol and not just "be careful with keys"
