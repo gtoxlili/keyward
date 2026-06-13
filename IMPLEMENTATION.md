@@ -18,7 +18,8 @@ crates/
     src/wire.rs            Frame ↔ WebSocket, hex/fingerprint/digest helpers
     src/provider/mod.rs       provider adapters; the `mock` provider (no key, no net),
                               dialect chosen by model family
-    src/provider/openai.rs    real OpenAI Chat-Completions adapter (feature = "openai")
+    src/provider/openai.rs    real OpenAI Chat Completions + Responses API adapters
+                              (feature = "openai")
     src/provider/anthropic.rs Anthropic Messages adapter + a tested usage accumulator
                               (feature = "anthropic")
     src/pricing.rs         budget cost from usage × vendored LiteLLM prices (data/)
@@ -40,11 +41,12 @@ cargo run -- demo
 
 You'll see: the Executor dial out; the Orchestrator present a root-delegated
 operational key and sign the freshly-assigned `sid`; the Executor **TOFU-pin the
-root** and verify the op key chains to it (fingerprints match); a `gpt-4o` intent
-(OpenAI dialect) and a `claude-sonnet-4-5` intent (Anthropic dialect) each stream
-back in sequenced native chunks with usage metered the way that dialect reports
-it; and a `gpt-4-turbo` intent **rejected with `policy_model`** before the
-provider is contacted.
+root** and verify the op key chains to it (fingerprints match); three intents in
+three native dialects — `gpt-4o` Chat Completions, `claude-sonnet-4-5` Anthropic
+Messages, and a `gpt-4o` Responses-API call (note `input` instead of `messages`) —
+each stream back in sequenced native chunks with usage metered the way that
+dialect reports it; and a `gpt-4-turbo` intent **rejected with `policy_model`**
+before the provider is contacted.
 
 ## Run the resume / cancel demo (§7)
 
@@ -107,17 +109,20 @@ one-time token, the Ed25519 orchestrator identity as a root→operational-key ch
 its `sid` signature, refuses a changed root or an op key the root didn't sign, and
 gates work/resume/cancel on a verified pairing — so the orchestrator can rotate op
 keys across reconnects without re-pairing), the policy engine with the §6 ordering
-and trailing-`*` globs, native-body passthrough in two dialects (OpenAI Chat
-Completions and Anthropic Messages), the streamed relay with a per-intent `seq`,
+and trailing-`*` globs, native-body passthrough in three dialects (OpenAI Chat
+Completions, the OpenAI Responses API, and Anthropic Messages), the streamed
+relay with a per-intent `seq`,
 and usage metered into budget spend the way each dialect reports it. Resumption is
 real too: each intent's producer is decoupled from the connection and buffers into
 a bounded ring, so a dropped channel suspends rather than fails — the Executor
 re-dials, re-pairs against the pinned key, and replays from `resume`'s `last_seq`;
-`cancel` aborts. The real adapters are there too (OpenAI forces
-`stream_options.include_usage`; Anthropic reads the split/cumulative usage without
+`cancel` aborts. The real adapters are there too (Chat Completions forces
+`stream_options.include_usage`; Responses reads usage off the terminal
+`response.completed`; Anthropic reads the split/cumulative usage without
 double-counting cache tokens; each attaches the key at one call site and honours
-its `*_BASE_URL`) — the demo just uses mocks so it needs no key. The real CLI
-resolves each provider's credential from the OS keychain (env fallback), per
+its `*_BASE_URL`) — the demo just uses mocks so it needs no key. The `openai` and
+`openai-responses` providers share one OpenAI credential. The real CLI resolves
+each provider's credential from the OS keychain (env fallback), per
 provider, so one Executor can front several accounts.
 
 The rest is stubbed, roughly in the order I'd reach for next:

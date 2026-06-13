@@ -40,8 +40,12 @@ pub async fn call(
         "mock" => Ok(mock_call(model, request)),
         #[cfg(feature = "openai")]
         "openai" => openai::call(model, request, key).await,
+        #[cfg(feature = "openai")]
+        "openai-responses" => openai::call_responses(model, request, key).await,
         #[cfg(not(feature = "openai"))]
-        "openai" => anyhow::bail!("provider 'openai' needs a build with --features openai"),
+        "openai" | "openai-responses" => {
+            anyhow::bail!("provider '{provider}' needs a build with --features openai")
+        }
         #[cfg(feature = "anthropic")]
         "anthropic" => anthropic::call(model, request, key).await,
         #[cfg(not(feature = "anthropic"))]
@@ -50,10 +54,13 @@ pub async fn call(
     }
 }
 
-/// Pick the mock dialect by model family — Claude models get the Anthropic event
-/// shape, everything else the OpenAI shape.
+/// Pick the mock dialect by request shape / model family: a Responses-API body
+/// (`input` field) → Responses events, a Claude model → Anthropic events,
+/// otherwise OpenAI Chat Completions.
 fn mock_call(model: &str, request: &Value) -> mpsc::Receiver<Event> {
-    if model.starts_with("claude") {
+    if request.get("input").is_some() {
+        mock_responses(model, request)
+    } else if model.starts_with("claude") {
         mock_anthropic(model, request)
     } else {
         mock_openai(model, request)
@@ -161,6 +168,58 @@ fn mock_anthropic(model: &str, request: &Value) -> mpsc::Receiver<Event> {
             .send(Event::Done {
                 result: None,
                 usage: acc.to_usage(),
+            })
+            .await;
+    });
+
+    rx
+}
+
+/// Mock provider in the OpenAI Responses-API dialect: emits the native named
+/// events (`response.created` → `response.output_text.delta`* →
+/// `response.completed`) with usage on the terminal event. Triggered when the
+/// request carries an `input` field instead of `messages`.
+fn mock_responses(model: &str, request: &Value) -> mpsc::Receiver<Event> {
+    let (tx, rx) = mpsc::channel::<Event>(16);
+
+    let input = request
+        .get("input")
+        .and_then(Value::as_str)
+        .unwrap_or("(no input)")
+        .to_string();
+    let input_tokens = rough_tokens(&input) + rough_tokens(model);
+    let reply = format!("Mock Responses reply from {model}: {} chars in.", input.len());
+    let pieces: Vec<String> = reply.split_inclusive(' ').map(str::to_string).collect();
+    let output_tokens = pieces.len() as u64;
+
+    let mut events: Vec<Value> = Vec::new();
+    events.push(
+        json!({ "type": "response.created", "response": { "id": "resp_mock", "status": "in_progress" }}),
+    );
+    events.push(json!({ "type": "response.output_item.added", "output_index": 0 }));
+    for piece in pieces {
+        events.push(json!({ "type": "response.output_text.delta", "delta": piece }));
+    }
+    events.push(json!({ "type": "response.output_text.done" }));
+    events.push(json!({
+        "type": "response.completed",
+        "response": { "usage": { "input_tokens": input_tokens, "output_tokens": output_tokens, "total_tokens": input_tokens + output_tokens }}
+    }));
+
+    tokio::spawn(async move {
+        for ev in events {
+            if tx.send(Event::Chunk(ev)).await.is_err() {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+        }
+        let _ = tx
+            .send(Event::Done {
+                result: None,
+                usage: Usage {
+                    input_tokens,
+                    output_tokens,
+                },
             })
             .await;
     });

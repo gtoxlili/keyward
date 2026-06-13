@@ -28,8 +28,9 @@ pub async fn run() -> Result<()> {
     println!("== Keyward demo ==");
     println!("orchestrator (holds NO key) listening at {url}\n");
 
-    // The app's scripted work. Bodies are provider-NATIVE, sans credential —
-    // OpenAI Chat Completions for the first, Anthropic Messages for the second.
+    // The app's scripted work. Bodies are provider-NATIVE, sans credential — one
+    // each in OpenAI Chat Completions, Anthropic Messages, and the OpenAI
+    // Responses API (note `input` instead of `messages`), then a blocked model.
     let intents = vec![
         (
             "mock".to_string(),
@@ -38,6 +39,10 @@ pub async fn run() -> Result<()> {
         (
             "mock".to_string(),
             json!({"model": "claude-sonnet-4-5", "max_tokens": 1024, "messages": [{"role": "user", "content": "And do you relay my native Anthropic body too?"}], "stream": true}),
+        ),
+        (
+            "mock".to_string(),
+            json!({"model": "gpt-4o", "input": "And the Responses API, with its own event shape?", "stream": true}),
         ),
         (
             "mock".to_string(),
