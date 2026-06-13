@@ -36,7 +36,7 @@ jobs:
           cp "target/${{ matrix.target }}/release/keyward" "$out"
           shasum -a 256 "$out" | tee "$out.sha256"
       - name: attest build provenance
-        uses: actions/attest-build-provenance@v1
+        uses: actions/attest-build-provenance@v4
         with:
           subject-path: keyward-${{ matrix.target }}
       - name: upload to release
