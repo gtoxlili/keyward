@@ -7,11 +7,21 @@
 
 ## 现状与路线
 
-**现在：** 通过一条双向通道（WebSocket）讲 `v0` 协议来集成。完整契约在 [spec.md](../spec.md)，
-`keyward orchestrator` 是一个可读、可跑的参考实现。
+**现在 · 零改动：** 跑 **OpenAI 兼容代理** —— `keyward proxy`（`--features proxy` 构建）。它暴露一个
+OpenAI 风格的 HTTP 端点、背后接已配对的 Executor，任何现存应用把 base URL 指过来即可接入：
 
-**路线图：** 即插即用的 **Orchestrator SDK**（把你的 Provider 客户端换一行）和本地 **OpenAI 兼容代理**
-（任何现存应用改个 `OPENAI_BASE_URL` 即可接入），让你几乎零改动集成。
+```sh
+keyward proxy   # 等一个 executor 配对，然后服务 http://127.0.0.1:8088
+# 你的 app 里：  OPENAI_BASE_URL=http://127.0.0.1:8088/v1   OPENAI_API_KEY=anything
+```
+
+`/v1/chat/completions`、`/v1/responses`、`/v1/messages` 按路径路由到对应方言；流式原样转发，所以你
+现有的 OpenAI SDK 直接能解析。key 始终留在 Executor 上，app 的 `OPENAI_API_KEY` 被忽略。
+
+**现在 · 更底层：** 直接对着 WebSocket 实现 `v0` 协议——完整契约在 [spec.md](../spec.md)，
+`keyward orchestrator` 是可读可跑的参考。
+
+**路线图：** 即插即用的 **Orchestrator SDK**（把客户端嵌进进程内；零改动接入已由代理覆盖）。
 
 ## 消息流
 

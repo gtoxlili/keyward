@@ -10,6 +10,8 @@ mod identity;
 mod orchestrator;
 mod pricing;
 mod provider;
+#[cfg(feature = "proxy")]
+mod proxy;
 mod secret;
 mod wire;
 
@@ -27,6 +29,7 @@ async fn main() -> anyhow::Result<()> {
         "set-key" => set_key_cli(),
         "delete-key" => delete_key_cli(),
         "identity" => identity_cli(),
+        "proxy" => run_proxy().await,
         "-h" | "--help" | "help" => {
             print_usage();
             Ok(())
@@ -36,6 +39,17 @@ async fn main() -> anyhow::Result<()> {
             print_usage();
             std::process::exit(2);
         }
+    }
+}
+
+async fn run_proxy() -> anyhow::Result<()> {
+    #[cfg(feature = "proxy")]
+    {
+        proxy::run_cli().await
+    }
+    #[cfg(not(feature = "proxy"))]
+    {
+        anyhow::bail!("`keyward proxy` needs a build with --features proxy")
     }
 }
 
@@ -90,6 +104,8 @@ fn print_usage() {
            keyward set-key <p>   store provider <p>'s key in the OS keychain (key via stdin)\n  \
            keyward delete-key <p> remove provider <p>'s key from the OS keychain\n  \
            keyward identity      print this Executor's identity pubkey (to be allow-listed)\n  \
+           keyward proxy         OpenAI-compatible HTTP proxy backed by a paired executor (--features proxy)\n                        \
+             env: KEYWARD_LISTEN, KEYWARD_PROXY_LISTEN, KEYWARD_PAIRING_TOKEN\n  \
            keyward orchestrator  serve a single-prompt mock Orchestrator\n                        \
              env: KEYWARD_LISTEN, KEYWARD_PAIRING_TOKEN, KEYWARD_PROVIDER, KEYWARD_MODEL,\n                        \
                   KEYWARD_PROMPT, KEYWARD_AUTHORIZED_EXECUTORS"

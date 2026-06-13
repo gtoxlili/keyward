@@ -26,6 +26,7 @@ uuid.workspace = true
 secrecy.workspace = true
 sha2.workspace = true
 reqwest = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
 
 # Per-platform keychain backend, native only — no system libs. macOS Keychain,
 # Windows Credential Manager, and on Linux the kernel keyutils (pure Rust, works
@@ -46,3 +47,6 @@ default = []
 # providers work without them.
 openai = ["dep:reqwest"]
 anthropic = ["dep:reqwest"]
+# Local OpenAI-compatible proxy (`keyward proxy`) — the Orchestrator side with an
+# HTTP front. Pulls in axum.
+proxy = ["dep:axum"]
