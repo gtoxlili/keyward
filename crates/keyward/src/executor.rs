@@ -17,7 +17,6 @@ use anyhow::{anyhow, Result};
 use ed25519_dalek::VerifyingKey;
 use futures_util::StreamExt;
 use keyward_proto::{Body, Frame, Live, Peer, Policy, Usage};
-use secrecy::SecretString;
 use serde_json::Value;
 use tokio::sync::{mpsc, Mutex, Notify};
 use tokio::time::{sleep, Duration};
@@ -26,6 +25,7 @@ use tokio_tungstenite::connect_async;
 use crate::identity;
 use crate::pricing;
 use crate::provider::{self, Event};
+use crate::secret::KeySource;
 use crate::wire;
 
 /// Recent chunks retained per intent for replay-on-resume (§7).
@@ -39,8 +39,9 @@ pub struct ExecutorConfig {
     pub name: String,
     pub providers: Vec<String>,
     pub policy: Policy,
-    /// The provider credential. Held only here; never serialized onto the wire.
-    pub provider_key: SecretString,
+    /// How the Executor gets each provider's credential. Held/resolved only here;
+    /// never serialized onto the wire.
+    pub keys: KeySource,
     /// TOFU store of the Orchestrator's pinned identity key (None until first contact).
     pub pinned: Arc<Mutex<Option<VerifyingKey>>>,
 }
@@ -379,7 +380,9 @@ fn spawn_producer(
     mid: String,
 ) {
     tokio::spawn(async move {
-        let mut rx = match provider::call(&provider, &model, &request, &cfg.provider_key).await {
+        // Resolve the credential per provider, locally, at call time.
+        let key = cfg.keys.resolve(&provider);
+        let mut rx = match provider::call(&provider, &model, &request, &key).await {
             Ok(rx) => rx,
             Err(e) => {
                 intent.buf.lock().await.terminal = Some(Terminal::Error {
@@ -574,9 +577,6 @@ pub async fn run_cli() -> Result<()> {
     let url = std::env::var("KEYWARD_ORCH_URL")
         .map_err(|_| anyhow!("set KEYWARD_ORCH_URL, e.g. ws://127.0.0.1:8787"))?;
     let token = std::env::var("KEYWARD_PAIRING_TOKEN").map_err(|_| anyhow!("set KEYWARD_PAIRING_TOKEN"))?;
-    let key = std::env::var("KEYWARD_PROVIDER_KEY")
-        .or_else(|_| std::env::var("OPENAI_API_KEY"))
-        .unwrap_or_default();
     let providers: Vec<String> = std::env::var("KEYWARD_PROVIDERS")
         .unwrap_or_else(|_| "mock,openai,anthropic".into())
         .split(',')
@@ -601,10 +601,10 @@ pub async fn run_cli() -> Result<()> {
         name: "keyward-exec".into(),
         providers,
         policy,
-        provider_key: SecretString::from(key),
+        keys: KeySource::Keychain,
         pinned: Arc::new(Mutex::new(None)),
     };
-    println!("[executor] dialing {url} …");
+    println!("[executor] dialing {url} …  (keys resolved from the OS keychain, then env)");
     run(&url, &token, cfg).await
 }
 

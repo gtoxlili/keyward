@@ -22,6 +22,7 @@ crates/
     src/provider/anthropic.rs Anthropic Messages adapter + a tested usage accumulator
                               (feature = "anthropic")
     src/pricing.rs         budget cost from usage × vendored LiteLLM prices (data/)
+    src/secret.rs          per-provider key resolution: OS keychain (keyring) -> env
     src/executor.rs        dial out, verify orchestrator key chain, enforce policy, relay;
                            per-intent ring buffer + reconnect/resume/cancel (§7)
     src/identity.rs        root -> operational-key chain: issue/verify op certs (§3/§9)
@@ -113,7 +114,9 @@ re-dials, re-pairs against the pinned key, and replays from `resume`'s `last_seq
 `cancel` aborts. The real adapters are there too (OpenAI forces
 `stream_options.include_usage`; Anthropic reads the split/cumulative usage without
 double-counting cache tokens; each attaches the key at one call site and honours
-its `*_BASE_URL`) — the demo just uses mocks so it needs no key.
+its `*_BASE_URL`) — the demo just uses mocks so it needs no key. The real CLI
+resolves each provider's credential from the OS keychain (env fallback), per
+provider, so one Executor can front several accounts.
 
 The rest is stubbed, roughly in the order I'd reach for next:
 - **Channel E2E crypto (Noise).** The reference channel is plain WSS to the
@@ -124,8 +127,11 @@ The rest is stubbed, roughly in the order I'd reach for next:
   the TOFU first-contact gap (SPEC §3).
 - **Executor identity.** The Orchestrator does not yet authenticate the *Executor*
   (the `hello.pubkey` field exists but isn't pinned).
-- **Secret storage.** The CLI reads the key from an env var; OS-keychain
-  (`keyring`) + `mlock`/zeroize hardening is not in yet.
+- **Secret hardening beyond the keychain.** Keys resolve from the OS keychain
+  (`keyring`) per provider with an env fallback, wrapped in `SecretString`
+  (redacted Debug, zeroized on drop), set via `keyward set-key`. Still TODO:
+  `mlock`/`setrlimit` to keep the key out of swap/core dumps, and a real
+  hidden-TTY prompt (the key is read from stdin but currently echoes).
 - **Byte-reproducible builds.** CI (fmt/clippy/test) and a release workflow that
   publishes checksums + a signed SLSA build-provenance attestation are in
   `.github/workflows/`; the pinned-container build that makes the binary
