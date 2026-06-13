@@ -254,3 +254,92 @@ async fn op_key_not_signed_by_claimed_root_is_refused() {
     }
     exec.await.unwrap().unwrap();
 }
+
+/// Opt-in live test against a real OpenAI-compatible endpoint. Skipped unless
+/// KEYWARD_LIVE_BASE_URL + KEYWARD_LIVE_KEY are set AND you build with
+/// `--features openai`. Example:
+///   KEYWARD_LIVE_BASE_URL=https://api.openai.com/v1 KEYWARD_LIVE_KEY=sk-... \
+///   KEYWARD_LIVE_MODEL=gpt-4o-mini cargo test --features openai live_ -- --nocapture
+#[tokio::test]
+async fn live_openai_chat_streams_and_meters() {
+    let (Ok(base), Ok(key)) = (
+        std::env::var("KEYWARD_LIVE_BASE_URL"),
+        std::env::var("KEYWARD_LIVE_KEY"),
+    ) else {
+        eprintln!(
+            "skipping live test (set KEYWARD_LIVE_BASE_URL + KEYWARD_LIVE_KEY, build --features openai)"
+        );
+        return;
+    };
+    std::env::set_var("OPENAI_BASE_URL", base);
+    let model = std::env::var("KEYWARD_LIVE_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into());
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("ws://{}", listener.local_addr().unwrap());
+    let cfg = ExecutorConfig {
+        name: "live".into(),
+        providers: vec!["openai".into()],
+        policy: Policy {
+            providers: Some(vec!["openai".into()]),
+            ..Default::default()
+        },
+        keys: KeySource::Fixed(SecretString::from(key)),
+        identity: SigningKey::generate(&mut OsRng),
+        pinned: Arc::new(Mutex::new(None)),
+    };
+    let exec = tokio::spawn(async move { executor::run(&url, "pt", cfg).await });
+
+    let (stream, _) = listener.accept().await.unwrap();
+    let (mut w, mut r) = accept_async(stream).await.unwrap().split();
+    assert!(matches!(
+        wire::recv(&mut r).await.unwrap().unwrap().body,
+        Body::Hello { .. }
+    ));
+    let root = SigningKey::generate(&mut OsRng);
+    let sid = pair(&mut w, &root).await;
+
+    let req = json!({"model": model, "messages": [{"role":"user","content":"Reply with exactly: pong"}], "max_tokens": 16});
+    wire::send(
+        &mut w,
+        &Frame::new(
+            Some(sid.clone()),
+            "live1",
+            Body::Work {
+                provider: "openai".into(),
+                request: req,
+            },
+        ),
+    )
+    .await
+    .unwrap();
+
+    let usage = loop {
+        let f = wire::recv(&mut r).await.unwrap().unwrap();
+        if f.mid != "live1" {
+            continue;
+        }
+        match f.body {
+            Body::WorkDone { usage, .. } => break usage,
+            Body::WorkError { code, message, .. } => panic!("live call failed: {code}: {message}"),
+            _ => {}
+        }
+    };
+    assert!(usage.output_tokens > 0, "live call should report output tokens");
+    eprintln!(
+        "live OK — usage in={} out={}",
+        usage.input_tokens, usage.output_tokens
+    );
+    wire::send(
+        &mut w,
+        &Frame::new(
+            Some(sid),
+            "c",
+            Body::Close {
+                reason: "done".into(),
+            },
+        ),
+    )
+    .await
+    .unwrap();
+    exec.await.unwrap().unwrap();
+}

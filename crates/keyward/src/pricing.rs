@@ -21,20 +21,38 @@ pub fn cost_usd(model: &str, usage: &Usage) -> f64 {
     usage.input_tokens as f64 * in_cost + usage.output_tokens as f64 * out_cost
 }
 
-/// (input, output) USD per token. Exact match first, then the longest registry
-/// key that is a prefix of `model` (handles dated/variant ids), then a
-/// conservative default so budget still bounds spend on an unknown model.
+/// (input, output) USD per token. Tries, in order: exact `model`, exact bare name
+/// (relays / OpenRouter namespace models as `provider/name`), longest-prefix
+/// `model`, longest-prefix bare name; then a conservative default so budget still
+/// bounds spend on an unknown model.
 fn price_per_token(model: &str) -> (f64, f64) {
+    let bare = model.split_once('/').map(|(_, b)| b);
     if let Some(&hit) = PRICES.get(model) {
         return hit;
     }
+    if let Some(b) = bare {
+        if let Some(&hit) = PRICES.get(b) {
+            return hit;
+        }
+    }
+    if let Some(p) = prefix_match(model) {
+        return p;
+    }
+    if let Some(p) = bare.and_then(prefix_match) {
+        return p;
+    }
+    (1.0 / 1e6, 3.0 / 1e6)
+}
+
+/// The longest registry key that is a prefix of `model` (handles dated/variant ids).
+fn prefix_match(model: &str) -> Option<(f64, f64)> {
     let mut best: Option<(&str, (f64, f64))> = None;
     for (k, &v) in PRICES.iter() {
         if model.starts_with(k.as_str()) && best.is_none_or(|(bk, _)| k.len() > bk.len()) {
             best = Some((k.as_str(), v));
         }
     }
-    best.map(|(_, v)| v).unwrap_or((1.0 / 1e6, 3.0 / 1e6))
+    best.map(|(_, v)| v)
 }
 
 #[cfg(test)]
@@ -79,5 +97,18 @@ mod tests {
             output_tokens: 0,
         };
         assert_eq!(cost_usd("gpt-4o", &u), cost_usd("gpt-4o-2099-01-01", &u));
+    }
+
+    #[test]
+    fn namespaced_model_matches_bare_name() {
+        // Relays / OpenRouter send "openai/gpt-4o-mini"; it must price like the bare name,
+        // not fall through to the unknown-model default. (Found via live verification.)
+        let u = Usage {
+            input_tokens: 1_000_000,
+            output_tokens: 1_000_000,
+        };
+        let bare = cost_usd("gpt-4o-mini", &u);
+        assert!(bare > 0.0);
+        assert_eq!(cost_usd("openai/gpt-4o-mini", &u), bare);
     }
 }
