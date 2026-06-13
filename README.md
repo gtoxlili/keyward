@@ -174,6 +174,9 @@ abused.
 
 ## Roadmap
 
+The single source of truth for what's built and what's left is **[docs/roadmap.md](./docs/roadmap.md)**.
+The high-level shape:
+
 - [x] `v0` spec — wire format for pairing, the work intent, streaming frames, and the policy object.
       Drafted in [SPEC.md](./docs/spec.md); pairing auth, resumption, and budget pricing are now resolved.
 - [~] Reference Executor — open source, reproducible; a local binary plus one-click serverless
