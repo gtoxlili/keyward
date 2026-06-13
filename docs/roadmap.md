@@ -50,7 +50,7 @@ verification** and the **Orchestrator SDK / proxy**.
 - [ ] **Per-Owner policy file** — user-editable limits (today the CLI ships a built-in default)
 
 ### Coverage / verification
-- [ ] **Real-provider verification** — run the adapters against live OpenAI / Anthropic; they're only compile- and mock-verified so far *(biggest unknown)*
+- [~] **Real-provider verification** — the OpenAI Chat Completions adapter is verified end to end against a live streaming API (streaming SSE parse + usage extraction); there's an opt-in `live_*` test (`crates/keyward/src/e2e_tests.rs`, gated on `KEYWARD_LIVE_BASE_URL` + `KEYWARD_LIVE_KEY`). The Responses API and Anthropic Messages are still mock-only.
 - [ ] **More providers + multimodal** — Gemini and others; verify tool-use / image / non-text payloads flow through native passthrough
 - [ ] **Byte-reproducible build** — pinned-container build so a third party can reproduce the binary bit-for-bit (provenance attestation already ships)
 
