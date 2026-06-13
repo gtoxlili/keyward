@@ -332,4 +332,75 @@ mod tests {
         assert!(s.contains("\"type\":\"work_chunk\""));
         assert!(s.contains("\"kw\":\"0\""));
     }
+
+    #[test]
+    fn roundtrip_paired_with_op_cert() {
+        let f = Frame::new(
+            Some("kw_sess_1".into()),
+            "01J",
+            Body::Paired {
+                orchestrator: Peer {
+                    name: "acme".into(),
+                    version: None,
+                    id: Some("orch_1".into()),
+                },
+                root_pubkey: "9d8f".into(),
+                op: OpCert {
+                    pubkey: "1a2b".into(),
+                    not_after: 1779999999,
+                    root_sig: "cafe".into(),
+                },
+                sig: "beef".into(),
+            },
+        );
+        let s = serde_json::to_string(&f).unwrap();
+        let back: Frame = serde_json::from_str(&s).unwrap();
+        match back.body {
+            Body::Paired {
+                root_pubkey, op, sig, ..
+            } => {
+                assert_eq!(root_pubkey, "9d8f");
+                assert_eq!(op.not_after, 1779999999);
+                assert_eq!(op.pubkey, "1a2b");
+                assert_eq!(sig, "beef");
+            }
+            _ => panic!("wrong body"),
+        }
+        assert!(s.contains("\"type\":\"paired\""));
+    }
+
+    #[test]
+    fn roundtrip_resume_and_cancel() {
+        for (body, tag) in [
+            (
+                Body::Resume {
+                    intent_mid: "m1".into(),
+                    last_seq: 41,
+                },
+                "resume",
+            ),
+            (
+                Body::Cancel {
+                    intent_mid: "m1".into(),
+                },
+                "cancel",
+            ),
+        ] {
+            let f = Frame::new(Some("s".into()), "x", body);
+            let s = serde_json::to_string(&f).unwrap();
+            assert!(s.contains(&format!("\"type\":\"{tag}\"")));
+            // round-trips back to the same variant
+            let back: Frame = serde_json::from_str(&s).unwrap();
+            let s2 = serde_json::to_string(&back).unwrap();
+            assert_eq!(s, s2);
+        }
+    }
+
+    #[test]
+    fn unknown_fields_are_ignored() {
+        // Forward-compat (§2/§10): receivers must ignore unknown fields.
+        let json = r#"{"kw":"0","type":"work_accepted","mid":"m","sid":"s","future_field":42}"#;
+        let f: Frame = serde_json::from_str(json).unwrap();
+        assert!(matches!(f.body, Body::WorkAccepted {}));
+    }
 }
