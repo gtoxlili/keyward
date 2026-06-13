@@ -18,10 +18,13 @@ keyward proxy   # 等一个 executor 配对，然后服务 http://127.0.0.1:8088
 `/v1/chat/completions`、`/v1/responses`、`/v1/messages` 按路径路由到对应方言；流式原样转发，所以你
 现有的 OpenAI SDK 直接能解析。key 始终留在 Executor 上，app 的 `OPENAI_API_KEY` 被忽略。
 
+**现在 · 进程内嵌：** 用 **Orchestrator SDK** 把客户端嵌进进程——Rust 用
+[`keyward-sdk`](../../crates/keyward-sdk)，Go 用 [`sdk/go`](../../sdk/go)。两者都是：绑一个监听、
+`serve_one` / `ServeOne` 配对一个 Executor，然后发 work intent、流式拿回原生事件。（Go SDK 与 Rust
+Executor 字节级兼容，CI 里跨语言验证过。）
+
 **现在 · 更底层：** 直接对着 WebSocket 实现 `v0` 协议——完整契约在 [spec.md](../spec.md)，
 `keyward orchestrator` 是可读可跑的参考。
-
-**路线图：** 即插即用的 **Orchestrator SDK**（把客户端嵌进进程内；零改动接入已由代理覆盖）。
 
 ## 消息流
 

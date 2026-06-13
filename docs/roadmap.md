@@ -42,7 +42,7 @@ verification** and the **Orchestrator SDK / proxy**.
 
 ### Make it usable (productization)
 - [x] **Local OpenAI-compatible proxy** — `keyward proxy` (feature `proxy`): an app points `OPENAI_BASE_URL` at it and the proxy relays each request to the paired Executor; streaming SSE is native passthrough, non-streaming is assembled. Verified live against a real backend.
-- [~] **Orchestrator SDK** — a Rust `keyward-sdk` crate (`serve_one` / `Session::submit`), cross-verified against the real executor; a Go SDK is next. (The proxy already covers zero-code-change integration; the SDK is for embedding in-process.)
+- [x] **Orchestrator SDK** — Rust (`keyward-sdk`) and Go (`sdk/go`) clients, both cross-verified against the real executor (the Go orchestrator's Ed25519 chain verifies on the Rust executor — proof the protocol is language-agnostic). (The proxy covers zero-code-change integration; these are for embedding in-process.)
 - [ ] **Serverless Executor templates** — Cloudflare Worker / AWS Lambda / Deno Deploy, key as a secret in the user's own account
 - [ ] **Browser / WASM Executor** — the ephemeral, in-tab interactive case
 - [ ] **Prebuilt binaries / installer** — so users don't have to `cargo build`
