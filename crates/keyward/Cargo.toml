@@ -25,8 +25,20 @@ rand_core.workspace = true
 uuid.workspace = true
 secrecy.workspace = true
 sha2.workspace = true
-keyring.workspace = true
 reqwest = { workspace = true, optional = true }
+
+# Per-platform keychain backend, native only — no system libs. macOS Keychain,
+# Windows Credential Manager, and on Linux the kernel keyutils (pure Rust, works
+# headless; deliberately NOT the desktop secret-service, which needs libdbus and
+# a session bus the typical keyward host doesn't have).
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3", features = ["apple-native"] }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+keyring = { version = "3", features = ["windows-native"] }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3", features = ["linux-native"] }
 
 [features]
 default = []
