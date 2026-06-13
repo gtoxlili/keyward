@@ -21,7 +21,9 @@ pub struct OrchestratorConfig {
     pub name: String,
     pub id: String,
     pub pairing_token: String,
-    pub signing: SigningKey,
+    /// Long-term root identity. Each connection mints a fresh operational key
+    /// delegated by this root (§3), so the Executor pins the root once.
+    pub root: SigningKey,
     /// Scripted intents: (provider, native request body without credential).
     pub intents: Vec<(String, Value)>,
 }
@@ -62,31 +64,9 @@ pub async fn serve(stream: TcpStream, cfg: OrchestratorConfig) -> Result<()> {
     };
     println!("[orchestr] hello from executor '{exec_name}'");
 
-    // 2. assign sid, sign it (identity proof), send paired.
-    let sid = format!("kw_sess_{}", &new_mid()[..8]);
-    let sig = cfg.signing.sign(sid.as_bytes());
-    let vk = cfg.signing.verifying_key();
-    println!(
-        "[orchestr] signing sid with identity key  fp={}",
-        wire::fingerprint(&vk.to_bytes())
-    );
-    wire::send(
-        &mut write,
-        &Frame::new(
-            Some(sid.clone()),
-            new_mid(),
-            Body::Paired {
-                orchestrator: Peer {
-                    name: cfg.name.clone(),
-                    version: None,
-                    id: Some(cfg.id.clone()),
-                },
-                pubkey: wire::hex(&vk.to_bytes()),
-                sig: wire::hex(&sig.to_bytes()),
-            },
-        ),
-    )
-    .await?;
+    // 2. mint an operational key delegated by the root, sign the sid, send paired.
+    let (sid, paired) = build_paired(&cfg);
+    wire::send(&mut write, &paired).await?;
 
     // 3. run scripted intents, sequentially for clear output.
     for (i, (provider, request)) in cfg.intents.into_iter().enumerate() {
@@ -172,7 +152,7 @@ pub async fn run_cli() -> Result<()> {
         name: "keyward-orch".into(),
         id: "orch_dev".into(),
         pairing_token: token,
-        signing: SigningKey::generate(&mut OsRng),
+        root: SigningKey::generate(&mut OsRng),
         intents: vec![(
             provider,
             json!({"model": model, "messages": [{"role": "user", "content": prompt}], "stream": true}),
@@ -228,27 +208,35 @@ where
     S: Sink<Message> + Unpin,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
-    let sid = format!("kw_sess_{}", &new_mid()[..8]);
-    let sig = cfg.signing.sign(sid.as_bytes());
-    let vk = cfg.signing.verifying_key();
-    wire::send(
-        write,
-        &Frame::new(
-            Some(sid.clone()),
-            new_mid(),
-            Body::Paired {
-                orchestrator: Peer {
-                    name: cfg.name.clone(),
-                    version: None,
-                    id: Some(cfg.id.clone()),
-                },
-                pubkey: wire::hex(&vk.to_bytes()),
-                sig: wire::hex(&sig.to_bytes()),
-            },
-        ),
-    )
-    .await?;
+    let (sid, paired) = build_paired(cfg);
+    wire::send(write, &paired).await?;
     Ok(sid)
+}
+
+/// Build a `paired` frame: assign a sid, mint a fresh operational key, have the
+/// root delegate it (1h), and sign the sid with it (the SSH-CA chain, §3).
+/// A fresh op key per call is what lets reconnects rotate keys without re-pairing.
+fn build_paired(cfg: &OrchestratorConfig) -> (String, Frame) {
+    let sid = format!("kw_sess_{}", &new_mid()[..8]);
+    let op = SigningKey::generate(&mut rand_core::OsRng);
+    let cert =
+        crate::identity::issue_op_cert(&cfg.root, &op.verifying_key(), crate::identity::now_unix() + 3600);
+    let sig = op.sign(sid.as_bytes());
+    let frame = Frame::new(
+        Some(sid.clone()),
+        new_mid(),
+        Body::Paired {
+            orchestrator: Peer {
+                name: cfg.name.clone(),
+                version: None,
+                id: Some(cfg.id.clone()),
+            },
+            root_pubkey: wire::hex(&cfg.root.verifying_key().to_bytes()),
+            op: cert,
+            sig: wire::hex(&sig.to_bytes()),
+        },
+    );
+    (sid, frame)
 }
 
 /// Demonstrate §7: stream an intent, drop the socket mid-stream, let the

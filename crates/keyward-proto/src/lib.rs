@@ -31,6 +31,19 @@ pub struct Usage {
     pub output_tokens: u64,
 }
 
+/// A root-signed delegation of an operational key (§3, SSH-CA pattern). The root
+/// signs `op_pubkey ‖ not_after`; the Executor verifies that against the pinned
+/// root, so operational keys can rotate without the Owner re-pairing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OpCert {
+    /// Operational public key, hex Ed25519.
+    pub pubkey: String,
+    /// Expiry, Unix seconds. The Executor refuses an expired operational key.
+    pub not_after: i64,
+    /// The root's signature over the canonical cert bytes, hex.
+    pub root_sig: String,
+}
+
 /// The full wire frame: envelope (§2) flattened over a typed body (§3–§7).
 ///
 /// Response frames echo the originating intent's `mid`; `Body::WorkChunk.seq`
@@ -73,15 +86,19 @@ pub enum Body {
     },
     /// Orchestrator → Executor: session opened (§3).
     ///
-    /// `pubkey` + `sig` resolve the §9 open question: the Orchestrator presents its
-    /// long-term identity key and signs the freshly-assigned `sid`. The Executor pins
-    /// the key on first contact (TOFU) and verifies `sig` on every reconnect. A stolen
-    /// pairing token alone is then useless — binding needs the private key.
+    /// Resolves the §9 open question with the SSH-CA pattern: the Executor pins the
+    /// long-term `root_pubkey` on first contact (TOFU); each connection presents a
+    /// short-lived operational key (`op`) delegated by the root, which signs the
+    /// freshly-assigned `sid`. A stolen pairing token alone is useless (binding needs
+    /// a key chaining to the pinned root), and the Orchestrator can rotate operational
+    /// keys / autoscale across reconnects without forcing the Owner to re-pair.
     Paired {
         orchestrator: Peer,
-        /// Orchestrator identity pubkey, base64 (Ed25519 in v0).
-        pubkey: String,
-        /// Detached signature over the assigned `sid`, base64.
+        /// Long-term root identity, hex Ed25519. Pinned by the Executor (TOFU).
+        root_pubkey: String,
+        /// Operational key for this connection + its root-signed delegation.
+        op: OpCert,
+        /// Operational key's detached signature over the assigned `sid`, hex.
         sig: String,
     },
     /// Orchestrator → Executor: perform one provider call (§4).

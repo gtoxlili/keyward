@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use ed25519_dalek::VerifyingKey;
 use futures_util::StreamExt;
 use keyward_proto::{Body, Frame, Live, Peer, Policy, Usage};
 use secrecy::SecretString;
@@ -23,6 +23,7 @@ use tokio::sync::{mpsc, Mutex, Notify};
 use tokio::time::{sleep, Duration};
 use tokio_tungstenite::connect_async;
 
+use crate::identity;
 use crate::pricing;
 use crate::provider::{self, Event};
 use crate::wire;
@@ -166,17 +167,19 @@ async fn serve_once(
 
     let mut sid: Option<String> = None;
     let mut orch_id = String::from("unknown");
+    let mut authenticated = false;
 
     let flow = loop {
         match wire::recv(&mut read).await {
             Ok(Some(frame)) => match frame.body {
                 Body::Paired {
                     orchestrator,
-                    pubkey,
+                    root_pubkey,
+                    op,
                     sig,
                 } => {
                     let s = frame.sid.clone().unwrap_or_default();
-                    if let Err(e) = verify_and_pin(&cfg.pinned, &s, &pubkey, &sig).await {
+                    if let Err(e) = verify_chain_and_pin(&cfg.pinned, &s, &root_pubkey, &op, &sig).await {
                         eprintln!("[executor] {e}");
                         break Flow::Stop;
                     }
@@ -186,8 +189,23 @@ async fn serve_once(
                         .unwrap_or_else(|| orchestrator.name.clone());
                     println!("[executor] paired  sid={s}  orchestrator={orch_id}");
                     sid = Some(s);
+                    authenticated = true;
                 }
                 Body::Work { provider, request } => {
+                    if !authenticated {
+                        let _ = out
+                            .send(Frame::new(
+                                sid.clone(),
+                                frame.mid,
+                                Body::WorkError {
+                                    code: "bad_request".into(),
+                                    message: "work before pairing".into(),
+                                    provider_status: None,
+                                },
+                            ))
+                            .await;
+                        continue;
+                    }
                     spawn_work(
                         frame.mid,
                         sid.clone(),
@@ -200,10 +218,16 @@ async fn serve_once(
                     );
                 }
                 Body::Resume { intent_mid, last_seq } => {
+                    if !authenticated {
+                        continue;
+                    }
                     let start = if last_seq < 0 { 0 } else { last_seq as u64 + 1 };
                     spawn_resume(intent_mid, sid.clone(), shared.clone(), out.clone(), start);
                 }
                 Body::Cancel { intent_mid } => {
+                    if !authenticated {
+                        continue;
+                    }
                     if let Some(intent) = shared.store.lock().await.get(&intent_mid) {
                         intent.cancelled.store(true, Ordering::SeqCst);
                         intent.cancel.notify_one();
@@ -418,7 +442,7 @@ async fn deliver(
     loop {
         enum Step {
             Send(u64, Value),
-            Terminal(Frame),
+            Terminal(Box<Frame>),
             Unrecoverable,
             Wait,
         }
@@ -430,7 +454,7 @@ async fn deliver(
                 let (seq, delta) = buf.chunks[(cursor - buf.base_seq) as usize].clone();
                 Step::Send(seq, delta)
             } else if let Some(t) = &buf.terminal {
-                Step::Terminal(terminal_frame(sid.clone(), mid.clone(), t))
+                Step::Terminal(Box::new(terminal_frame(sid.clone(), mid.clone(), t)))
             } else {
                 Step::Wait
             }
@@ -451,7 +475,7 @@ async fn deliver(
                 cursor += 1;
             }
             Step::Terminal(frame) => {
-                let _ = out.send(frame).await;
+                let _ = out.send(*frame).await;
                 shared.store.lock().await.remove(&mid);
                 return;
             }
@@ -501,45 +525,48 @@ fn terminal_frame(sid: Option<String>, mid: String, t: &Terminal) -> Frame {
     }
 }
 
-/// Verify the Orchestrator's signature over the assigned `sid`, then pin its key
-/// (TOFU). A reconnect under a *different* key, or a bad signature, is refused —
-/// this is what makes a stolen pairing token alone insufficient to bind (§9).
-async fn verify_and_pin(
+/// Pin the Orchestrator's **root** key (TOFU), verify the connection's operational
+/// key chains to it and signed the assigned `sid`. A reconnect under a different
+/// root, an op key not delegated by the pinned root, an expired op key, or a bad
+/// `sid` signature is refused — a stolen pairing token alone can't satisfy this
+/// (§3/§9). Rotating operational keys across reconnects is fine.
+async fn verify_chain_and_pin(
     pinned: &Arc<Mutex<Option<VerifyingKey>>>,
     sid: &str,
-    pubkey_hex: &str,
+    root_pubkey_hex: &str,
+    op: &keyward_proto::OpCert,
     sig_hex: &str,
 ) -> Result<()> {
-    let pk: [u8; 32] = wire::unhex(pubkey_hex)
-        .ok_or_else(|| anyhow!("bad pubkey hex"))?
-        .as_slice()
-        .try_into()
-        .map_err(|_| anyhow!("pubkey must be 32 bytes"))?;
-    let vk = VerifyingKey::from_bytes(&pk).map_err(|e| anyhow!("bad pubkey: {e}"))?;
-    let sig: [u8; 64] = wire::unhex(sig_hex)
-        .ok_or_else(|| anyhow!("bad sig hex"))?
-        .as_slice()
-        .try_into()
-        .map_err(|_| anyhow!("sig must be 64 bytes"))?;
-    let sig = Signature::from_bytes(&sig);
-    vk.verify(sid.as_bytes(), &sig)
-        .map_err(|_| anyhow!("orchestrator signature INVALID over sid — refusing to bind"))?;
+    let root = identity::parse_pubkey(root_pubkey_hex)?;
 
-    let mut guard = pinned.lock().await;
-    match guard.as_ref() {
-        Some(existing) if existing.to_bytes() != vk.to_bytes() => Err(anyhow!(
-            "pinned orchestrator key changed — refusing (possible impersonation / stolen token)"
-        )),
-        Some(_) => Ok(()),
-        None => {
-            println!(
-                "[executor] TOFU: pinning orchestrator key  fp={}",
-                wire::fingerprint(&vk.to_bytes())
-            );
-            *guard = Some(vk);
-            Ok(())
+    // Pin the root on first contact; refuse a changed root thereafter.
+    {
+        let mut guard = pinned.lock().await;
+        match guard.as_ref() {
+            Some(existing) if existing.to_bytes() != root.to_bytes() => {
+                return Err(anyhow!(
+                    "pinned root key changed — refusing (possible impersonation / stolen token)"
+                ));
+            }
+            Some(_) => {}
+            None => {
+                println!(
+                    "[executor] TOFU: pinning orchestrator ROOT key  fp={}",
+                    wire::fingerprint(&root.to_bytes())
+                );
+                *guard = Some(root);
+            }
         }
     }
+
+    let op_key = identity::verify_op_cert(&root, op, identity::now_unix())?;
+    identity::verify_sid_sig(&op_key, sid, sig_hex)?;
+    println!(
+        "[executor] verified op-key fp={} via pinned root fp={}",
+        wire::fingerprint(&op_key.to_bytes()),
+        wire::fingerprint(&root.to_bytes())
+    );
+    Ok(())
 }
 
 /// Standalone executor: dial a real Orchestrator using env config.

@@ -6,6 +6,7 @@
 
 mod demo;
 mod executor;
+mod identity;
 mod orchestrator;
 mod pricing;
 mod provider;

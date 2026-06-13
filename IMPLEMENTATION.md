@@ -22,8 +22,9 @@ crates/
     src/provider/anthropic.rs Anthropic Messages adapter + a tested usage accumulator
                               (feature = "anthropic")
     src/pricing.rs         budget cost from usage × vendored LiteLLM prices (data/)
-    src/executor.rs        dial out, pin+verify orchestrator key, enforce policy, relay;
+    src/executor.rs        dial out, verify orchestrator key chain, enforce policy, relay;
                            per-intent ring buffer + reconnect/resume/cancel (§7)
+    src/identity.rs        root -> operational-key chain: issue/verify op certs (§3/§9)
     src/orchestrator.rs    mock app: issues pairing token, signs sid, drives intents
     src/demo.rs            wires both ends over a localhost WS; `demo` runs three intents,
                            `resume-demo` drops the channel mid-stream and resumes
@@ -97,8 +98,11 @@ that's what reproducible builds + signed provenance are for. See the README's
 ## What's real vs. what I faked
 
 Enough is real to believe the shape: the dial-out WS transport, pairing with a
-one-time token, the Ed25519 orchestrator identity (signed `sid`, TOFU pin, and a
-refusal if the key changes on reconnect), the policy engine with the §6 ordering
+one-time token, the Ed25519 orchestrator identity as a root→operational-key chain
+(the Executor pins the root TOFU, verifies each connection's root-signed op cert +
+its `sid` signature, refuses a changed root or an op key the root didn't sign, and
+gates work/resume/cancel on a verified pairing — so the orchestrator can rotate op
+keys across reconnects without re-pairing), the policy engine with the §6 ordering
 and trailing-`*` globs, native-body passthrough in two dialects (OpenAI Chat
 Completions and Anthropic Messages), the streamed relay with a per-intent `seq`,
 and usage metered into budget spend the way each dialect reports it. Resumption is
@@ -113,11 +117,12 @@ its `*_BASE_URL`) — the demo just uses mocks so it needs no key.
 The rest is stubbed, roughly in the order I'd reach for next:
 - **Channel E2E crypto (Noise).** The reference channel is plain WSS to the
   Orchestrator; the Noise inner layer (for an untrusted relay) isn't wired yet.
-- **Root-key + chained op-keys.** Pinning is a single key today; the SSH-CA-style
-  root→operational-key chain (so SaaS rotation/autoscale needs no re-pair) is
-  designed in SPEC §3/§9 but not implemented.
-- **Resume auth + single-use tokens.** Reconnect re-pairs with the *same* token
-  (the skeleton relaxes single-use); resume isn't yet bound by a fresh signature.
+- **Single-use pairing tokens + OOB fingerprint.** Reconnect re-pairs with the
+  *same* token (the skeleton relaxes single-use so the resume demo can re-pair);
+  and nothing yet forces the out-of-band root-fingerprint confirmation that closes
+  the TOFU first-contact gap (SPEC §3).
+- **Executor identity.** The Orchestrator does not yet authenticate the *Executor*
+  (the `hello.pubkey` field exists but isn't pinned).
 - **Secret storage.** The CLI reads the key from an env var; OS-keychain
   (`keyring`) + `mlock`/zeroize hardening is not in yet.
 - **Byte-reproducible builds.** CI (fmt/clippy/test) and a release workflow that
