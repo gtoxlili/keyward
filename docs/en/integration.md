@@ -8,13 +8,25 @@
 
 ## Today vs. roadmap
 
-**Today:** integrate by speaking the `v0` wire protocol over a bidirectional channel
-(a WebSocket). The whole contract is in [spec.md](../spec.md), and
-`keyward orchestrator` is a working reference you can read and run.
+**Today, zero code change:** run the **OpenAI-compatible proxy** — `keyward proxy`
+(build with `--features proxy`). It exposes an OpenAI-style HTTP endpoint backed by
+the paired Executor, so any existing app integrates by pointing its base URL at it:
 
-**Roadmap:** a drop-in **Orchestrator SDK** (swap your provider client for one line)
-and a local **OpenAI-compatible proxy** (point any existing app at it by changing
-`OPENAI_BASE_URL`) so you integrate with near-zero code change.
+```sh
+keyward proxy   # waits for an executor to pair, then serves http://127.0.0.1:8088
+# in your app:  OPENAI_BASE_URL=http://127.0.0.1:8088/v1   OPENAI_API_KEY=anything
+```
+
+`/v1/chat/completions`, `/v1/responses`, and `/v1/messages` are routed to the
+matching dialect; streaming is relayed verbatim, so your existing OpenAI SDK parses
+it natively. The key stays on the Executor; the app's `OPENAI_API_KEY` is ignored.
+
+**Today, deeper:** integrate the `v0` wire protocol directly over a WebSocket — the
+whole contract is in [spec.md](../spec.md), and `keyward orchestrator` is a working
+reference.
+
+**Roadmap:** a drop-in **Orchestrator SDK** to embed the client in-process (the
+proxy already covers zero-code-change integration).
 
 ## The message flow
 

@@ -166,7 +166,7 @@ pub async fn run_cli() -> Result<()> {
 /// Extract the text delta from a native chunk in either dialect — the demo's
 /// stand-in for what a real provider SDK does on the Orchestrator side. Keyward
 /// itself never looks inside the chunk; it just relays the bytes.
-fn chunk_text(delta: &Value) -> &str {
+pub(crate) fn chunk_text(delta: &Value) -> &str {
     if let Some(t) = delta.pointer("/choices/0/delta/content").and_then(Value::as_str) {
         return t; // OpenAI Chat Completions
     }
@@ -192,7 +192,7 @@ fn chunk_text(delta: &Value) -> &str {
 /// SaaS admit only registered users, without ever weakening the Owner's ability to
 /// inspect their own key. (The v0 skeleton relaxes single-use tokens so the resume
 /// demo can re-pair; a real Orchestrator would not.)
-fn authenticate_executor(hello: &Body, cfg: &OrchestratorConfig) -> Result<()> {
+pub(crate) fn authenticate_executor(hello: &Body, cfg: &OrchestratorConfig) -> Result<()> {
     let Body::Hello {
         pairing_token,
         executor,
@@ -262,7 +262,7 @@ where
 /// Build a `paired` frame: assign a sid, mint a fresh operational key, have the
 /// root delegate it (1h), and sign the sid with it (the SSH-CA chain, §3).
 /// A fresh op key per call is what lets reconnects rotate keys without re-pairing.
-fn build_paired(cfg: &OrchestratorConfig) -> (String, Frame) {
+pub(crate) fn build_paired(cfg: &OrchestratorConfig) -> (String, Frame) {
     let sid = format!("kw_sess_{}", &new_mid()[..8]);
     let op = SigningKey::generate(&mut rand_core::OsRng);
     let cert =

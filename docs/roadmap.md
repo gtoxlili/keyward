@@ -41,8 +41,8 @@ verification** and the **Orchestrator SDK / proxy**.
 - [ ] **Secret hardening** — `mlock`/`setrlimit` (keep the key out of swap/core dumps) + a real hidden-TTY prompt for `set-key`
 
 ### Make it usable (productization)
-- [ ] **Orchestrator SDK** — a drop-in client so an app integrates by swapping its provider client for one line *(highest-leverage)*
-- [ ] **Local OpenAI-compatible proxy** — point any existing app at it via `OPENAI_BASE_URL`, zero code change
+- [x] **Local OpenAI-compatible proxy** — `keyward proxy` (feature `proxy`): an app points `OPENAI_BASE_URL` at it and the proxy relays each request to the paired Executor; streaming SSE is native passthrough, non-streaming is assembled. Verified live against a real backend.
+- [ ] **Orchestrator SDK** — a drop-in client library (the proxy already covers zero-code-change integration; this is for embedding in-process)
 - [ ] **Serverless Executor templates** — Cloudflare Worker / AWS Lambda / Deno Deploy, key as a secret in the user's own account
 - [ ] **Browser / WASM Executor** — the ephemeral, in-tab interactive case
 - [ ] **Prebuilt binaries / installer** — so users don't have to `cargo build`
