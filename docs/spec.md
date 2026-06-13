@@ -62,13 +62,21 @@ a code to paste, exactly the WalletConnect gesture. The token MUST be short-live
   "pairing_token": "pt_...",
   "executor":  { "name": "keyward-exec", "version": "0.1.0" },
   "providers": ["openai", "anthropic"],
-  "policy_digest": "sha256:9f86d0..."
+  "policy_digest": "sha256:9f86d0...",
+  "pubkey": "3840db81...",
+  "sig": "executor signature over pairing_token"
 }
 ```
 
 - `policy_digest` is a hash of the active policy (§6). It lets the Orchestrator notice that limits
   changed without the Owner having to reveal them. Sharing the full policy is OPTIONAL via a
   `policy` field — the Owner MAY keep their limits private.
+- `pubkey` is the Executor's long-term identity key; `sig` is its signature over the `pairing_token`,
+  proving possession. They let the Orchestrator **authenticate the Executor** (§9) — e.g. a SaaS that
+  admits only registered users keeps an allow-list of Executor `pubkey`s. An Orchestrator that
+  enforces this MUST reject a `hello` whose `sig` is missing or doesn't verify against `pubkey`, or
+  whose `pubkey` is not authorized. This authenticates *who is calling*; it does NOT, and must not,
+  limit the Owner's ability to inspect their own key (§9).
 
 **Orchestrator → Executor**
 
@@ -254,6 +262,17 @@ Custody stops the key from leaking; **policy stops it from being abused.** Both 
   say-so, so it MUST authenticate the Orchestrator rather than trust the channel alone. The
   mechanism (pinned Ed25519 identity, signature over `sid`, root-key→operational-key chaining,
   out-of-band fingerprint confirmation) is specified in §3.
+- **Authenticating the Executor (for the Orchestrator's benefit).** Symmetrically, an Orchestrator
+  MAY authenticate the Executor: `hello` carries the Executor's identity `pubkey` and a `sig` over
+  the pairing token (§3). This lets a SaaS admit only registered Executors (an allow-list of
+  `pubkey`s) — protecting *its* side without weakening the Owner's. It is strictly a "who may bind"
+  control: it MUST NOT be used to stop the Owner from inspecting the credential on their own host
+  (that verification is the whole point of Keyward), and it cannot — the Owner runs the Executor.
+- **Payloads cannot be hidden from the Owner.** A corollary of the above: whoever attaches the
+  bearer credential to the provider request necessarily sees that request, and in Keyward that is
+  the Owner's Executor. So an Orchestrator cannot hide prompts/payloads from the Owner; non-custodial
+  BYOK and payload-confidentiality-from-the-Owner are mutually exclusive (the latter needs a
+  custodial/TEE model, out of scope here).
 - **Channel encryption vs. a relay.** A direct dial-out to the Orchestrator over TLS gets
   confidentiality and integrity from the transport (§1). If an **untrusted relay** is interposed —
   one that only stores and forwards opaque frames — TLS to the relay is not enough; the Executor

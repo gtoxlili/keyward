@@ -75,6 +75,27 @@ pub fn delete_key(provider: &str) -> Result<()> {
         .map_err(|e| anyhow!("keychain delete failed: {e}"))
 }
 
+/// Keychain entry name for the Executor's long-term identity seed (32 bytes, hex).
+const IDENTITY: &str = "__identity__";
+
+/// Load the persisted Executor identity seed: `KEYWARD_IDENTITY_SEED` first (for
+/// headless hosts that pin a fixed identity), then the OS keychain.
+pub fn load_identity_seed() -> Option<String> {
+    if let Ok(s) = std::env::var("KEYWARD_IDENTITY_SEED") {
+        if !s.is_empty() {
+            return Some(s);
+        }
+    }
+    keyring::Entry::new(SERVICE, IDENTITY).ok()?.get_password().ok()
+}
+
+/// Persist the Executor identity seed in the OS keychain.
+pub fn store_identity_seed(seed_hex: &str) -> Result<()> {
+    keyring::Entry::new(SERVICE, IDENTITY)
+        .and_then(|e| e.set_password(seed_hex))
+        .map_err(|e| anyhow!("keychain write failed: {e}"))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

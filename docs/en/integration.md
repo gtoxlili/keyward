@@ -47,6 +47,21 @@ with a long-lived **root identity key**; the Executor pins it on first contact, 
 rotation / autoscaling across reconnects needs no re-pairing. Show your root key's
 fingerprint so the user can confirm it out of band.
 
+## Controlling who can bind (protecting your side)
+
+You can also **authenticate the Executor**, so only your registered users may bind.
+Each Executor has a stable identity key; the user runs `keyward identity` to get
+their pubkey and registers it with you at sign-up. You then admit only that
+allow-list: every `hello` carries the Executor's `pubkey` and a signature over the
+pairing token, and you reject any that isn't authorized.
+
+This protects *your* interests (who may use your app) without touching the Owner's —
+it's strictly a "who may bind" gate. It does **not** hide prompts or keys from the
+user: in BYOK the Owner runs the Executor, so they can always inspect their own
+traffic (that's the point), and whoever attaches the credential to the provider call
+necessarily sees that call. If you need to hide payloads *from the user*, BYOK is the
+wrong model — that requires server-side / TEE execution.
+
 ---
 
 Try it locally: [a full walkthrough](./walkthrough.md) · Read the wire format:

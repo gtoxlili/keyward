@@ -50,11 +50,17 @@ pub async fn run() -> Result<()> {
         ),
     ];
 
+    // The Executor's identity; the Orchestrator allow-lists it (a SaaS would
+    // allow-list its registered users exactly this way).
+    let exec_identity = SigningKey::generate(&mut OsRng);
+    let exec_pubkey = crate::wire::hex(&exec_identity.verifying_key().to_bytes());
+
     let ocfg = OrchestratorConfig {
         name: "acme-agent".into(),
         id: "orch_acme".into(),
         pairing_token: token.into(),
         root: SigningKey::generate(&mut OsRng),
+        authorized_executors: Some(vec![exec_pubkey]),
         intents,
     };
     let server = tokio::spawn(async move {
@@ -91,6 +97,7 @@ pub async fn run() -> Result<()> {
         keys: KeySource::Fixed(SecretString::from(
             "sk-DEMO-this-string-never-leaves-the-executor".to_string(),
         )),
+        identity: exec_identity,
         pinned: Arc::new(Mutex::new(None)),
     };
 
@@ -113,11 +120,15 @@ pub async fn run_resume() -> Result<()> {
     println!("== Keyward resume / cancel demo ==");
     println!("orchestrator at {url}\n");
 
+    let exec_identity = SigningKey::generate(&mut OsRng);
+    let exec_pubkey = crate::wire::hex(&exec_identity.verifying_key().to_bytes());
+
     let ocfg = OrchestratorConfig {
         name: "acme-agent".into(),
         id: "orch_acme".into(),
         pairing_token: token.into(),
         root: SigningKey::generate(&mut OsRng),
+        authorized_executors: Some(vec![exec_pubkey]),
         intents: Vec::new(), // this demo scripts its own two-connection flow
     };
     let server = tokio::spawn(async move {
@@ -148,6 +159,7 @@ pub async fn run_resume() -> Result<()> {
         keys: KeySource::Fixed(SecretString::from(
             "sk-DEMO-this-string-never-leaves-the-executor".to_string(),
         )),
+        identity: exec_identity,
         pinned: Arc::new(Mutex::new(None)),
     };
 

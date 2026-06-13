@@ -14,7 +14,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
-use ed25519_dalek::VerifyingKey;
+use ed25519_dalek::{SigningKey, VerifyingKey};
 use futures_util::StreamExt;
 use keyward_proto::{Body, Frame, Live, Peer, Policy, Usage};
 use serde_json::Value;
@@ -42,6 +42,10 @@ pub struct ExecutorConfig {
     /// How the Executor gets each provider's credential. Held/resolved only here;
     /// never serialized onto the wire.
     pub keys: KeySource,
+    /// The Executor's long-term identity key. Its public half is sent in `hello`
+    /// and signs the pairing token, so the Orchestrator can authenticate this
+    /// Executor (e.g. allow-list registered users, §9).
+    pub identity: SigningKey,
     /// TOFU store of the Orchestrator's pinned identity key (None until first contact).
     pub pinned: Arc<Mutex<Option<VerifyingKey>>>,
 }
@@ -267,7 +271,8 @@ fn hello_frame(cfg: &ExecutorConfig, pairing_token: &str) -> Frame {
             },
             providers: cfg.providers.clone(),
             policy_digest: wire::policy_digest(&policy_canon),
-            pubkey: None,
+            pubkey: Some(wire::hex(&cfg.identity.verifying_key().to_bytes())),
+            sig: Some(identity::sign_detached(&cfg.identity, pairing_token.as_bytes())),
         },
     )
 }
@@ -597,11 +602,18 @@ pub async fn run_cli() -> Result<()> {
         }),
         ..Default::default()
     };
+    let identity = identity::load_or_create_identity();
+    println!(
+        "[executor] identity fp={}  (give the orchestrator this pubkey to be allow-listed: {})",
+        wire::fingerprint(&identity.verifying_key().to_bytes()),
+        wire::hex(&identity.verifying_key().to_bytes())
+    );
     let cfg = ExecutorConfig {
         name: "keyward-exec".into(),
         providers,
         policy,
         keys: KeySource::Keychain,
+        identity,
         pinned: Arc::new(Mutex::new(None)),
     };
     println!("[executor] dialing {url} …  (keys resolved from the OS keychain, then env)");

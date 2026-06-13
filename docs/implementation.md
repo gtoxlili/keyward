@@ -123,7 +123,11 @@ double-counting cache tokens; each attaches the key at one call site and honours
 its `*_BASE_URL`) — the demo just uses mocks so it needs no key. The `openai` and
 `openai-responses` providers share one OpenAI credential. The real CLI resolves
 each provider's credential from the OS keychain (env fallback), per
-provider, so one Executor can front several accounts.
+provider, so one Executor can front several accounts. Executor authentication is
+real too: the Executor has a persistent identity key (`keyward identity`), signs
+the pairing token in `hello`, and the Orchestrator verifies that possession and
+(optionally) checks it against an allow-list of authorized Executor pubkeys — so a
+SaaS can admit only registered users without weakening the Owner's verifiability.
 
 The rest is stubbed, roughly in the order I'd reach for next:
 - **Channel E2E crypto (Noise).** The reference channel is plain WSS to the
@@ -132,8 +136,6 @@ The rest is stubbed, roughly in the order I'd reach for next:
   *same* token (the skeleton relaxes single-use so the resume demo can re-pair);
   and nothing yet forces the out-of-band root-fingerprint confirmation that closes
   the TOFU first-contact gap (SPEC §3).
-- **Executor identity.** The Orchestrator does not yet authenticate the *Executor*
-  (the `hello.pubkey` field exists but isn't pinned).
 - **Secret hardening beyond the keychain.** Keys resolve per provider from the OS
   keychain — native backends only (macOS Keychain, Windows Credential Manager,
   Linux kernel keyutils; no D-Bus / secret-service dependency) — with an env

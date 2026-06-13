@@ -24,6 +24,10 @@ pub struct OrchestratorConfig {
     /// Long-term root identity. Each connection mints a fresh operational key
     /// delegated by this root (§3), so the Executor pins the root once.
     pub root: SigningKey,
+    /// Optional allow-list of authorized Executor identity pubkeys (hex). `None`
+    /// accepts any Executor that proves possession of its key; `Some` lets a SaaS
+    /// admit only registered users (§9).
+    pub authorized_executors: Option<Vec<String>>,
     /// Scripted intents: (provider, native request body without credential).
     pub intents: Vec<(String, Value)>,
 }
@@ -33,36 +37,25 @@ pub async fn serve(stream: TcpStream, cfg: OrchestratorConfig) -> Result<()> {
     let ws = accept_async(stream).await?;
     let (mut write, mut read) = ws.split();
 
-    // 1. expect hello, check the one-time pairing token.
+    // 1. expect hello, authenticate the Executor (token + identity + allow-list).
     let hello = wire::recv(&mut read)
         .await?
         .ok_or_else(|| anyhow!("closed before hello"))?;
-    let exec_name = match &hello.body {
-        Body::Hello {
-            pairing_token,
-            executor,
-            ..
-        } => {
-            if pairing_token != &cfg.pairing_token {
-                let _ = wire::send(
-                    &mut write,
-                    &Frame::new(
-                        None,
-                        new_mid(),
-                        Body::Error {
-                            code: "bad_request".into(),
-                            message: "pairing token rejected".into(),
-                        },
-                    ),
-                )
-                .await;
-                return Err(anyhow!("pairing token mismatch"));
-            }
-            executor.name.clone()
-        }
-        _ => return Err(anyhow!("expected hello")),
-    };
-    println!("[orchestr] hello from executor '{exec_name}'");
+    if let Err(e) = authenticate_executor(&hello.body, &cfg) {
+        let _ = wire::send(
+            &mut write,
+            &Frame::new(
+                None,
+                new_mid(),
+                Body::Error {
+                    code: "bad_request".into(),
+                    message: e.to_string(),
+                },
+            ),
+        )
+        .await;
+        return Err(e);
+    }
 
     // 2. mint an operational key delegated by the root, sign the sid, send paired.
     let (sid, paired) = build_paired(&cfg);
@@ -148,11 +141,20 @@ pub async fn run_cli() -> Result<()> {
     println!("           KEYWARD_ORCH_URL=ws://{listen} KEYWARD_PAIRING_TOKEN={token} cargo run -- executor");
     let (stream, _) = listener.accept().await?;
 
+    // Optional SaaS allow-list of Executor identity pubkeys (comma-separated hex).
+    let authorized_executors = std::env::var("KEYWARD_AUTHORIZED_EXECUTORS").ok().map(|s| {
+        s.split(',')
+            .map(|x| x.trim().to_string())
+            .filter(|x| !x.is_empty())
+            .collect::<Vec<_>>()
+    });
+
     let cfg = OrchestratorConfig {
         name: "keyward-orch".into(),
         id: "orch_dev".into(),
         pairing_token: token,
         root: SigningKey::generate(&mut OsRng),
+        authorized_executors,
         intents: vec![(
             provider,
             json!({"model": model, "messages": [{"role": "user", "content": prompt}], "stream": true}),
@@ -184,31 +186,67 @@ fn chunk_text(delta: &Value) -> &str {
     ""
 }
 
+/// Authenticate the Executor from its `hello` (§9): the pairing token, a possession
+/// proof (the Executor's signature over the token with its identity key), and — when
+/// the Orchestrator runs an allow-list — that the identity is authorized. This lets a
+/// SaaS admit only registered users, without ever weakening the Owner's ability to
+/// inspect their own key. (The v0 skeleton relaxes single-use tokens so the resume
+/// demo can re-pair; a real Orchestrator would not.)
+fn authenticate_executor(hello: &Body, cfg: &OrchestratorConfig) -> Result<()> {
+    let Body::Hello {
+        pairing_token,
+        executor,
+        pubkey,
+        sig,
+        ..
+    } = hello
+    else {
+        bail!("expected hello");
+    };
+    if pairing_token != &cfg.pairing_token {
+        bail!("pairing token rejected");
+    }
+    match (pubkey, sig) {
+        (Some(pk), Some(sig)) => {
+            let vk = crate::identity::parse_pubkey(pk)?;
+            crate::identity::verify_detached(&vk, cfg.pairing_token.as_bytes(), sig)
+                .map_err(|_| anyhow!("executor identity signature invalid"))?;
+        }
+        _ => {
+            if cfg.authorized_executors.is_some() {
+                bail!("executor identity required but not provided");
+            }
+        }
+    }
+    if let Some(allow) = &cfg.authorized_executors {
+        let pk = pubkey.as_deref().unwrap_or("");
+        if !allow.iter().any(|a| a == pk) {
+            bail!("executor not authorized");
+        }
+    }
+    let fp = pubkey
+        .as_deref()
+        .and_then(wire::unhex)
+        .filter(|b| b.len() >= 8)
+        .map(|b| wire::fingerprint(&b))
+        .unwrap_or_else(|| "none".into());
+    println!(
+        "[orchestr] hello from executor '{}'  identity fp={fp}",
+        executor.name
+    );
+    Ok(())
+}
+
 // --- resume / cancel demo (two connections) -------------------------------
 
-async fn expect_hello<S>(read: &mut S, token: &str) -> Result<()>
+async fn authenticate_hello<S>(read: &mut S, cfg: &OrchestratorConfig) -> Result<()>
 where
     S: Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
 {
     let hello = wire::recv(read)
         .await?
         .ok_or_else(|| anyhow!("closed before hello"))?;
-    match hello.body {
-        Body::Hello {
-            pairing_token,
-            executor,
-            ..
-        } => {
-            // NB: the v0 skeleton relaxes single-use tokens so the demo can re-pair
-            // on reconnect with the same token. A real Orchestrator would not.
-            if pairing_token != token {
-                bail!("pairing token rejected");
-            }
-            println!("[orchestr] hello from executor '{}'", executor.name);
-            Ok(())
-        }
-        _ => bail!("expected hello"),
-    }
+    authenticate_executor(&hello.body, cfg)
 }
 
 async fn send_paired<S>(write: &mut S, cfg: &OrchestratorConfig) -> Result<String>
@@ -255,7 +293,7 @@ pub async fn serve_resume_demo(listener: TcpListener, cfg: OrchestratorConfig) -
     // ---- connection 1: stream, then drop mid-way ----
     let (s1, _) = listener.accept().await?;
     let (mut w1, mut r1) = accept_async(s1).await?.split();
-    expect_hello(&mut r1, &cfg.pairing_token).await?;
+    authenticate_hello(&mut r1, &cfg).await?;
     let sid1 = send_paired(&mut w1, &cfg).await?;
     println!("[orchestr] paired (conn 1)  sid={sid1}");
 
@@ -312,7 +350,7 @@ pub async fn serve_resume_demo(listener: TcpListener, cfg: OrchestratorConfig) -
     // ---- connection 2: the Executor re-dials; resume ----
     let (s2, _) = listener.accept().await?;
     let (mut w2, mut r2) = accept_async(s2).await?.split();
-    expect_hello(&mut r2, &cfg.pairing_token).await?;
+    authenticate_hello(&mut r2, &cfg).await?;
     let sid2 = send_paired(&mut w2, &cfg).await?;
     println!("[orchestr] executor reconnected; paired (conn 2)  sid={sid2}");
     println!("[orchestr] <-- resume mid={}…  last_seq={last_seq}", &mid[..8]);
@@ -430,4 +468,89 @@ pub async fn serve_resume_demo(listener: TcpListener, cfg: OrchestratorConfig) -
     )
     .await?;
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ed25519_dalek::SigningKey;
+    use rand_core::OsRng;
+
+    fn cfg(authorized: Option<Vec<String>>) -> OrchestratorConfig {
+        OrchestratorConfig {
+            name: "o".into(),
+            id: "orch".into(),
+            pairing_token: "pt".into(),
+            root: SigningKey::generate(&mut OsRng),
+            authorized_executors: authorized,
+            intents: vec![],
+        }
+    }
+
+    fn hello(token: &str, key: &SigningKey, with_sig: bool) -> Body {
+        Body::Hello {
+            pairing_token: token.into(),
+            executor: Peer {
+                name: "e".into(),
+                version: None,
+                id: None,
+            },
+            providers: vec![],
+            policy_digest: "d".into(),
+            pubkey: Some(wire::hex(&key.verifying_key().to_bytes())),
+            sig: with_sig.then(|| crate::identity::sign_detached(key, token.as_bytes())),
+        }
+    }
+
+    fn pk_hex(key: &SigningKey) -> String {
+        wire::hex(&key.verifying_key().to_bytes())
+    }
+
+    #[test]
+    fn authorized_executor_accepted() {
+        let k = SigningKey::generate(&mut OsRng);
+        let c = cfg(Some(vec![pk_hex(&k)]));
+        assert!(authenticate_executor(&hello("pt", &k, true), &c).is_ok());
+    }
+
+    #[test]
+    fn unauthorized_executor_rejected() {
+        let k = SigningKey::generate(&mut OsRng);
+        let someone_else = pk_hex(&SigningKey::generate(&mut OsRng));
+        let c = cfg(Some(vec![someone_else])); // allow-list does NOT include k
+        assert!(authenticate_executor(&hello("pt", &k, true), &c).is_err());
+    }
+
+    #[test]
+    fn forged_signature_rejected() {
+        let k = SigningKey::generate(&mut OsRng);
+        let c = cfg(Some(vec![pk_hex(&k)]));
+        // claim k's pubkey but sign with an imposter key
+        let mut h = hello("pt", &k, false);
+        if let Body::Hello { sig, .. } = &mut h {
+            let imposter = SigningKey::generate(&mut OsRng);
+            *sig = Some(crate::identity::sign_detached(&imposter, b"pt"));
+        }
+        assert!(authenticate_executor(&h, &c).is_err());
+    }
+
+    #[test]
+    fn allowlist_requires_an_identity() {
+        let k = SigningKey::generate(&mut OsRng);
+        let c = cfg(Some(vec![pk_hex(&k)]));
+        assert!(authenticate_executor(&hello("pt", &k, false), &c).is_err()); // no sig
+    }
+
+    #[test]
+    fn no_allowlist_accepts_valid_possession() {
+        let k = SigningKey::generate(&mut OsRng);
+        assert!(authenticate_executor(&hello("pt", &k, true), &cfg(None)).is_ok());
+    }
+
+    #[test]
+    fn wrong_pairing_token_rejected() {
+        let k = SigningKey::generate(&mut OsRng);
+        let c = cfg(Some(vec![pk_hex(&k)]));
+        assert!(authenticate_executor(&hello("WRONG", &k, true), &c).is_err());
+    }
 }

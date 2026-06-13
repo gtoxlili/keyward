@@ -26,6 +26,7 @@ async fn main() -> anyhow::Result<()> {
         "orchestrator" => orchestrator::run_cli().await,
         "set-key" => set_key_cli(),
         "delete-key" => delete_key_cli(),
+        "identity" => identity_cli(),
         "-h" | "--help" | "help" => {
             print_usage();
             Ok(())
@@ -36,6 +37,17 @@ async fn main() -> anyhow::Result<()> {
             std::process::exit(2);
         }
     }
+}
+
+/// Print this Executor's identity pubkey + fingerprint, to register with an
+/// Orchestrator / SaaS that allow-lists Executors.
+fn identity_cli() -> anyhow::Result<()> {
+    let vk = identity::load_or_create_identity().verifying_key().to_bytes();
+    println!("executor identity");
+    println!("  fingerprint: {}", wire::fingerprint(&vk));
+    println!("  pubkey:      {}", wire::hex(&vk));
+    println!("\nGive the pubkey to an orchestrator to be allow-listed (e.g. KEYWARD_AUTHORIZED_EXECUTORS).");
+    Ok(())
 }
 
 /// Store a provider key in the OS keychain. The secret is read from stdin (never
@@ -77,7 +89,9 @@ fn print_usage() {
              env: KEYWARD_ORCH_URL, KEYWARD_PAIRING_TOKEN\n  \
            keyward set-key <p>   store provider <p>'s key in the OS keychain (key via stdin)\n  \
            keyward delete-key <p> remove provider <p>'s key from the OS keychain\n  \
+           keyward identity      print this Executor's identity pubkey (to be allow-listed)\n  \
            keyward orchestrator  serve a single-prompt mock Orchestrator\n                        \
-             env: KEYWARD_LISTEN, KEYWARD_PAIRING_TOKEN, KEYWARD_PROVIDER, KEYWARD_MODEL, KEYWARD_PROMPT"
+             env: KEYWARD_LISTEN, KEYWARD_PAIRING_TOKEN, KEYWARD_PROVIDER, KEYWARD_MODEL,\n                        \
+                  KEYWARD_PROMPT, KEYWARD_AUTHORIZED_EXECUTORS"
     );
 }
