@@ -16,6 +16,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use anyhow::{Result, anyhow};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use keyward_proto::{Body, Frame, Live, Peer, Policy, Usage};
+use serde::Serialize;
 use serde_json::Value;
 use tokio::sync::{Mutex, Notify, mpsc};
 use tokio::time::{Duration, sleep};
@@ -34,6 +35,57 @@ pub fn new_mid() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
+/// A structured status event from the running Executor. The CLI ignores these (it
+/// prints), a UI streams them. Internally tagged so the frontend gets a clean TS
+/// discriminated union (`{ kind: "paired", ... }`). Never affects protocol behavior.
+#[derive(Clone, Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ExecutorEvent {
+    /// Dialing the Orchestrator.
+    Connecting { url: String },
+    /// Paired, and the Orchestrator's identity chain verified against the pinned root.
+    Paired {
+        orchestrator: String,
+        root_fingerprint: String,
+        sid: String,
+    },
+    /// A work intent passed policy and was accepted (credential injected locally).
+    Accepted {
+        mid: String,
+        provider: String,
+        model: String,
+    },
+    /// A work intent finished, with metered usage and cost.
+    Done {
+        mid: String,
+        provider: String,
+        model: String,
+        input_tokens: u64,
+        output_tokens: u64,
+        cost_usd: f64,
+        spent_usd: f64,
+    },
+    /// A work intent was refused by policy before the provider was contacted.
+    Denied {
+        mid: String,
+        provider: String,
+        model: String,
+        code: String,
+    },
+    /// A work intent failed (provider/network error, or a cancel).
+    WorkFailed {
+        mid: String,
+        code: String,
+        message: String,
+    },
+    /// The channel dropped; in-flight intents are suspended, not failed (§7).
+    ConnectionLost { pending: usize },
+    /// Reconnecting to resume the suspended intents.
+    Reconnecting { attempt: u32 },
+    /// The Executor stopped — clean close, fatal error, or giving up reconnecting.
+    Stopped { reason: String },
+}
+
 pub struct ExecutorConfig {
     pub name: String,
     pub providers: Vec<String>,
@@ -47,6 +99,9 @@ pub struct ExecutorConfig {
     pub identity: SigningKey,
     /// TOFU store of the Orchestrator's pinned identity key (None until first contact).
     pub pinned: Arc<Mutex<Option<VerifyingKey>>>,
+    /// Optional structured-event sink. The CLI leaves this `None` (it prints to stdout);
+    /// a UI sets it to stream [`ExecutorEvent`]s. Purely observational.
+    pub events: Option<mpsc::UnboundedSender<ExecutorEvent>>,
 }
 
 #[derive(Default)]
@@ -107,6 +162,17 @@ struct Intent {
 struct Shared {
     store: Mutex<HashMap<String, Arc<Intent>>>,
     runtime: Mutex<Runtime>,
+    events: Option<mpsc::UnboundedSender<ExecutorEvent>>,
+}
+
+impl Shared {
+    /// Forward a status event to the UI sink, if any. Best-effort: a closed receiver
+    /// is silently ignored (the executor keeps running regardless).
+    fn emit(&self, ev: ExecutorEvent) {
+        if let Some(tx) = &self.events {
+            let _ = tx.send(ev);
+        }
+    }
 }
 
 enum Flow {
@@ -117,10 +183,16 @@ enum Flow {
 /// Dial out, pair, and serve work — reconnecting to resume in-flight intents if
 /// the channel drops, up to a bounded number of attempts.
 pub async fn run(url: &str, pairing_token: &str, cfg: ExecutorConfig) -> Result<()> {
+    let events = cfg.events.clone();
     let cfg = Arc::new(cfg);
     let shared = Arc::new(Shared {
         store: Mutex::new(HashMap::new()),
         runtime: Mutex::new(Runtime::default()),
+        events,
+    });
+
+    shared.emit(ExecutorEvent::Connecting {
+        url: url.to_string(),
     });
 
     let mut attempt = 0u32;
@@ -131,14 +203,22 @@ pub async fn run(url: &str, pairing_token: &str, cfg: ExecutorConfig) -> Result<
             Ok(Flow::Reconnect) | Err(_) => {
                 let pending = shared.store.lock().await.len();
                 if pending == 0 {
+                    shared.emit(ExecutorEvent::Stopped {
+                        reason: "disconnected".into(),
+                    });
                     return Ok(());
                 }
                 attempt += 1;
                 if attempt > 12 {
+                    shared.emit(ExecutorEvent::Stopped {
+                        reason: format!("gave up reconnecting with {pending} intent(s) in flight"),
+                    });
                     return Err(anyhow!(
                         "giving up reconnecting with {pending} intent(s) in flight"
                     ));
                 }
+                shared.emit(ExecutorEvent::ConnectionLost { pending });
+                shared.emit(ExecutorEvent::Reconnecting { attempt });
                 println!(
                     "[executor] channel lost; {pending} intent(s) in flight, reconnecting (attempt {attempt})…"
                 );
@@ -175,13 +255,24 @@ async fn serve_once(
                     let s = frame.sid.clone().unwrap_or_default();
                     if let Err(e) = verify_chain_and_pin(&cfg.pinned, &s, &root_pubkey, &op, &sig).await {
                         eprintln!("[executor] {e}");
+                        shared.emit(ExecutorEvent::Stopped {
+                            reason: e.to_string(),
+                        });
                         break Flow::Stop;
                     }
                     orch_id = orchestrator
                         .id
                         .clone()
                         .unwrap_or_else(|| orchestrator.name.clone());
+                    let root_fingerprint = identity::parse_pubkey(&root_pubkey)
+                        .map(|k| wire::fingerprint(&k.to_bytes()))
+                        .unwrap_or_default();
                     println!("[executor] paired  sid={s}  orchestrator={orch_id}");
+                    shared.emit(ExecutorEvent::Paired {
+                        orchestrator: orch_id.clone(),
+                        root_fingerprint,
+                        sid: s.clone(),
+                    });
                     sid = Some(s);
                     authenticated = true;
                 }
@@ -232,6 +323,9 @@ async fn serve_once(
                 }
                 Body::Close { reason } => {
                     println!("[executor] channel closed by orchestrator: {reason}");
+                    shared.emit(ExecutorEvent::Stopped {
+                        reason: format!("closed by orchestrator: {reason}"),
+                    });
                     break Flow::Stop;
                 }
                 _ => {}
@@ -296,6 +390,12 @@ fn spawn_work(
                 "[executor] DENY  provider={provider} model={model}  ->  {}",
                 d.code()
             );
+            shared.emit(ExecutorEvent::Denied {
+                mid: mid.clone(),
+                provider: provider.clone(),
+                model: model.clone(),
+                code: d.code().into(),
+            });
             let _ = out
                 .send(Frame::new(
                     sid,
@@ -315,6 +415,11 @@ fn spawn_work(
             .send(Frame::new(sid.clone(), mid.clone(), Body::WorkAccepted {}))
             .await;
         println!("[executor] ACCEPT provider={provider} model={model}  (key injected locally)");
+        shared.emit(ExecutorEvent::Accepted {
+            mid: mid.clone(),
+            provider: provider.clone(),
+            model: model.clone(),
+        });
 
         let intent = Arc::new(Intent {
             buf: Mutex::new(IntentBuf::new()),
@@ -376,6 +481,11 @@ fn spawn_producer(
         let mut rx = match provider::call(&provider, &model, &request, &key).await {
             Ok(rx) => rx,
             Err(e) => {
+                shared.emit(ExecutorEvent::WorkFailed {
+                    mid: mid.clone(),
+                    code: "provider_network".into(),
+                    message: e.to_string(),
+                });
                 intent.buf.lock().await.terminal = Some(Terminal::Error {
                     code: "provider_network".into(),
                     message: e.to_string(),
@@ -388,6 +498,11 @@ fn spawn_producer(
         loop {
             if intent.cancelled.load(Ordering::SeqCst) {
                 println!("[executor] {mid} cancelled — stopping read");
+                shared.emit(ExecutorEvent::WorkFailed {
+                    mid: mid.clone(),
+                    code: "cancelled".into(),
+                    message: "cancelled by orchestrator".into(),
+                });
                 intent.buf.lock().await.terminal = Some(Terminal::Error {
                     code: "cancelled".into(),
                     message: "cancelled by orchestrator".into(),
@@ -409,9 +524,19 @@ fn spawn_producer(
                         };
                         let n = { let mut b = intent.buf.lock().await; b.terminal = Some(Terminal::Done { result, usage: usage.clone() }); b.next_seq };
                         println!("[executor] DONE  {mid}: {n} chunks  usage in={} out={}  cost=${cost:.5}  window_spent=${spent:.5}", usage.input_tokens, usage.output_tokens);
+                        shared.emit(ExecutorEvent::Done {
+                            mid: mid.clone(),
+                            provider: provider.clone(),
+                            model: model.clone(),
+                            input_tokens: usage.input_tokens,
+                            output_tokens: usage.output_tokens,
+                            cost_usd: cost,
+                            spent_usd: spent,
+                        });
                         return;
                     }
                     None => {
+                        shared.emit(ExecutorEvent::WorkFailed { mid: mid.clone(), code: "provider_network".into(), message: "stream ended".into() });
                         intent.buf.lock().await.terminal = Some(Terminal::Error { code: "provider_network".into(), message: "stream ended".into(), provider_status: None });
                         return;
                     }
@@ -626,6 +751,7 @@ pub async fn run_cli() -> Result<()> {
         keys: KeySource::Keychain,
         identity,
         pinned: Arc::new(Mutex::new(None)),
+        events: None,
     };
     println!("[executor] dialing {url} …  (keys resolved from the OS keychain, then env)");
     run(&url, &token, cfg).await

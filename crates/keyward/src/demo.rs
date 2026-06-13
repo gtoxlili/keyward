@@ -100,6 +100,7 @@ pub async fn run() -> Result<()> {
         )),
         identity: exec_identity,
         pinned: Arc::new(Mutex::new(None)),
+        events: None,
     };
 
     executor::run(&url, token, cfg).await?;
@@ -163,6 +164,7 @@ pub async fn run_resume() -> Result<()> {
         )),
         identity: exec_identity,
         pinned: Arc::new(Mutex::new(None)),
+        events: None,
     };
 
     executor::run(&url, token, cfg).await?;

@@ -38,6 +38,7 @@ async fn harness(policy: Policy) -> (WsW, WsR, tokio::task::JoinHandle<anyhow::R
         keys: KeySource::Fixed(SecretString::from("sk-TEST-never-leaves".to_string())),
         identity: SigningKey::generate(&mut OsRng),
         pinned: Arc::new(Mutex::new(None)),
+        events: None,
     };
     let exec = tokio::spawn(async move { executor::run(&url, "pt_test", cfg).await });
 
@@ -288,6 +289,7 @@ async fn live_openai_chat_streams_and_meters() {
         keys: KeySource::Fixed(SecretString::from(key)),
         identity: SigningKey::generate(&mut OsRng),
         pinned: Arc::new(Mutex::new(None)),
+        events: None,
     };
     let exec = tokio::spawn(async move { executor::run(&url, "pt", cfg).await });
 

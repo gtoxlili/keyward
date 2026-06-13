@@ -4,20 +4,7 @@
 //!   keyward executor      dial out to an Orchestrator (env-configured)
 //!   keyward orchestrator  serve a single-prompt Orchestrator for manual testing
 
-mod demo;
-mod executor;
-mod identity;
-mod orchestrator;
-mod pricing;
-mod provider;
-#[cfg(feature = "proxy")]
-mod proxy;
-mod secret;
-mod transport;
-mod wire;
-
-#[cfg(test)]
-mod e2e_tests;
+use keyward::{demo, executor, identity, orchestrator, secret, wire};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -46,7 +33,7 @@ async fn main() -> anyhow::Result<()> {
 async fn run_proxy() -> anyhow::Result<()> {
     #[cfg(feature = "proxy")]
     {
-        proxy::run_cli().await
+        keyward::proxy::run_cli().await
     }
     #[cfg(not(feature = "proxy"))]
     {

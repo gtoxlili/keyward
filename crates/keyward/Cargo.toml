@@ -8,6 +8,10 @@ rust-version.workspace = true
 description = "Keyward reference Executor + a mock Orchestrator for the end-to-end demo."
 default-run = "keyward"
 
+[lib]
+name = "keyward"
+path = "src/lib.rs"
+
 [[bin]]
 name = "keyward"
 path = "src/main.rs"
