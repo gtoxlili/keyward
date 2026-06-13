@@ -14,16 +14,16 @@ If you've used WalletConnect, this will feel familiar. The dApp asks, your walle
 never sees your private key. Keyward is that idea, for API keys.
 
 **Status:** early, `v0`, unstable — but real enough to run. The wire protocol is in
-**[SPEC.md](./SPEC.md)**, and there's a working Rust reference Executor:
+**[SPEC.md](./docs/spec.md)**, and there's a working Rust reference Executor:
 `cargo run -- demo` takes a call end to end (dial-out pairing, a pinned root→operational key chain,
 policy enforced before the provider is touched, native streaming relayed and metered), and
 `cargo run -- resume-demo` drops the channel mid-stream and resumes. See
-**[IMPLEMENTATION.md](./IMPLEMENTATION.md)** for what's real and what's still stubbed. Treat every
+**[IMPLEMENTATION.md](./docs/implementation.md)** for what's real and what's still stubbed. Treat every
 detail as provisional until `v1`; issues and pushback welcome.
 
 Want to **use** it (bring your own key) or **integrate** it (build on it as an app)? Start with the
-**[docs](./docs/)** (中英双语) — a guide [for users](./docs/users.md) and one
-[for app builders](./docs/integration.md).
+**[docs](./docs/)** (English & 中文) — a guide [for users](./docs/en/users.md) and one
+[for app builders](./docs/en/integration.md).
 
 ## Why bother
 
@@ -78,7 +78,7 @@ Owner                Executor                 Orchestrator              Provider
    public on your side: it's an outbound connection the Orchestrator pushes work down (a WebSocket
    or a gRPC stream), not a published port. The protocol is transport-agnostic, but it's a
    *dial-out app connection*, not a tunnel appliance — `frp`/ngrok/Cloudflare Tunnel are built to
-   expose an inbound listener, which is the opposite shape (see [SPEC §1](./SPEC.md)).
+   expose an inbound listener, which is the opposite shape (see [SPEC §1](./docs/spec.md)).
 2. When the Orchestrator wants an LLM call, it sends a work intent over that session: model,
    messages, tools, params. No key — it doesn't have one to send.
 3. The Executor checks the intent against the limits *you* set (allowed models, budget, rate, which
@@ -154,10 +154,10 @@ abused.
 ## Roadmap
 
 - [x] `v0` spec — wire format for pairing, the work intent, streaming frames, and the policy object.
-      Drafted in [SPEC.md](./SPEC.md); pairing auth, resumption, and budget pricing are now resolved.
+      Drafted in [SPEC.md](./docs/spec.md); pairing auth, resumption, and budget pricing are now resolved.
 - [~] Reference Executor — open source, reproducible; a local binary plus one-click serverless
       templates. A Rust **walking skeleton** runs end to end today — see
-      [IMPLEMENTATION.md](./IMPLEMENTATION.md). Serverless templates and reproducible-build pipeline next.
+      [IMPLEMENTATION.md](./docs/implementation.md). Serverless templates and reproducible-build pipeline next.
 - [ ] Orchestrator SDK — ideally you integrate by swapping your provider client for one line.
 - [~] Transport adapters — outbound **WebSocket** first (done in the skeleton), then a gRPC bidi
       stream; the protocol is transport-agnostic. (Tunnel appliances are the wrong shape — see SPEC §1.)
@@ -169,7 +169,7 @@ abused.
 
 ## Contributing
 
-It's early, so the most useful thing right now is to argue with [SPEC.md](./SPEC.md) — especially
+It's early, so the most useful thing right now is to argue with [SPEC.md](./docs/spec.md) — especially
 its open questions. Prose issues are fine; you don't need a PR. See [CONTRIBUTING.md](./CONTRIBUTING.md).
 
 If you find a hole in the core promise — any way the app could still get hold of the key — please

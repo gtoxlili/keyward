@@ -1,12 +1,13 @@
 # Contributing to Keyward
 
-Keyward is early. Right now it's a design note ([README](./README.md)) and a draft spec
-([SPEC.md](./SPEC.md)) — there's no code to send PRs against yet. That shapes what's actually
-useful to contribute.
+Keyward is early. There's a design note ([README](./README.md)), a draft spec
+([spec.md](./docs/spec.md)), and a Rust reference implementation (see
+[implementation.md](./docs/implementation.md)). It's `v0` and unstable, which shapes what's
+actually useful to contribute.
 
 ## The most useful thing you can do
 
-Argue with the spec. The **Open questions** section of SPEC.md is where I'm least sure of myself,
+Argue with the spec. The **Open questions** section of the spec is where I'm least sure of myself,
 and the threat model in the README is the thing I most want stress-tested. Open an issue if:
 
 - You can break the core promise — any path by which the Orchestrator (or its operator, its logs,
