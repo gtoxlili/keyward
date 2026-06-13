@@ -79,10 +79,15 @@ pub enum Body {
         executor: Peer,
         providers: Vec<String>,
         policy_digest: String,
-        /// Executor's long-term identity pubkey (base64). Lets the Orchestrator
-        /// pin the Executor symmetrically. RECOMMENDED.
+        /// Executor's long-term identity pubkey, hex Ed25519. Lets the Orchestrator
+        /// authenticate the Executor (§9) — e.g. allow-list registered users.
         #[serde(skip_serializing_if = "Option::is_none")]
         pubkey: Option<String>,
+        /// Executor's signature over the `pairing_token`, proving possession of the
+        /// `pubkey` identity (hex). Required when the Orchestrator authenticates
+        /// Executors.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        sig: Option<String>,
     },
     /// Orchestrator → Executor: session opened (§3).
     ///

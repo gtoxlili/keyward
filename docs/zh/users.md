@@ -45,6 +45,9 @@ keyward executor
 配对时 Executor 会**钉住（pin）应用的根身份钥**（首次信任 TOFU）并打印其指纹。把它和应用展示的对一下
 ——这正是「即使配对 token 泄露，冒充者也绑不上」的关键。
 
+有些应用只接受注册过的用户。如果是这样，跑 `keyward identity` 打印你 Executor 的 pubkey，在注册时交给应用
+——连接时你的 Executor 会证明自己握有这把钥。
+
 ## 4. Executor 替你把的关
 
 应用偷不走你的 key，却仍可能*花掉*它。所以 Executor 在每次调用前执行**你的策略（Owner policy）**，

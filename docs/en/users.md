@@ -50,6 +50,10 @@ On pairing the Executor pins the app's **root identity key** (trust-on-first-use
 prints its fingerprint. Compare it against the one the app shows — that's what stops
 an impostor from binding even if your pairing token leaks.
 
+Some apps only admit registered users. If so, run `keyward identity` to print your
+Executor's pubkey and give it to the app at sign-up — your Executor proves it holds
+that key when it connects.
+
 ## 4. What the Executor enforces for you
 
 The app can't *steal* your key, but it could still *spend* it. So the Executor

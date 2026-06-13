@@ -52,10 +52,21 @@ pub fn verify_op_cert(root: &VerifyingKey, cert: &OpCert, now: i64) -> Result<Ve
     Ok(op)
 }
 
+/// Sign a detached message, returning a hex signature.
+pub fn sign_detached(key: &SigningKey, msg: &[u8]) -> String {
+    crate::wire::hex(&key.sign(msg).to_bytes())
+}
+
+/// Verify a detached hex signature by `pubkey` over `msg`.
+pub fn verify_detached(pubkey: &VerifyingKey, msg: &[u8], sig_hex: &str) -> Result<()> {
+    pubkey
+        .verify(msg, &parse_sig(sig_hex)?)
+        .map_err(|_| anyhow!("signature invalid"))
+}
+
 /// Verify an operational key's signature over the assigned `sid`.
 pub fn verify_sid_sig(op: &VerifyingKey, sid: &str, sig_hex: &str) -> Result<()> {
-    op.verify(sid.as_bytes(), &parse_sig(sig_hex)?)
-        .map_err(|_| anyhow!("sid signature invalid"))
+    verify_detached(op, sid.as_bytes(), sig_hex)
 }
 
 pub fn parse_pubkey(hex_str: &str) -> Result<VerifyingKey> {
@@ -65,6 +76,21 @@ pub fn parse_pubkey(hex_str: &str) -> Result<VerifyingKey> {
         .try_into()
         .map_err(|_| anyhow!("pubkey must be 32 bytes"))?;
     VerifyingKey::from_bytes(&b).map_err(|e| anyhow!("bad pubkey: {e}"))
+}
+
+/// Load the Executor's persistent identity (keychain / env), or generate one and
+/// persist it. The public half is what an Orchestrator allow-lists.
+pub fn load_or_create_identity() -> SigningKey {
+    if let Some(seed) = crate::secret::load_identity_seed() {
+        if let Some(bytes) = unhex(&seed) {
+            if let Ok(arr) = <[u8; 32]>::try_from(bytes.as_slice()) {
+                return SigningKey::from_bytes(&arr);
+            }
+        }
+    }
+    let key = SigningKey::generate(&mut rand_core::OsRng);
+    let _ = crate::secret::store_identity_seed(&crate::wire::hex(&key.to_bytes()));
+    key
 }
 
 fn parse_sig(hex_str: &str) -> Result<Signature> {
