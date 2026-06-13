@@ -87,6 +87,7 @@ pub async fn run_cli() -> Result<()> {
         pairing_token: token.clone(),
         root: SigningKey::generate(&mut OsRng),
         authorized_executors: authorized,
+        claimed_tokens: Default::default(),
         intents: Vec::new(),
     };
 
