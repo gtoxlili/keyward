@@ -13,10 +13,13 @@ leaves your side.** The app sends work to where your key lives; your key never t
 If you've used WalletConnect, this will feel familiar. The dApp asks, your wallet signs, the dApp
 never sees your private key. Keyward is that idea, for API keys.
 
-**Status:** this is a design note plus a draft spec, not a library — yet. I'm writing the idea down
-before building it, partly to think it through and partly to see if anyone else actually wants it.
-There's a first cut of the wire protocol in **[SPEC.md](./SPEC.md)** (`v0`, unstable); a reference
-implementation is next (see [Roadmap](#roadmap)). Issues and pushback welcome.
+**Status:** early, `v0`, unstable — but real enough to run. The wire protocol is in
+**[SPEC.md](./SPEC.md)**, and there's a working Rust reference Executor:
+`cargo run -- demo` takes a call end to end (dial-out pairing, a pinned root→operational key chain,
+policy enforced before the provider is touched, native streaming relayed and metered), and
+`cargo run -- resume-demo` drops the channel mid-stream and resumes. See
+**[IMPLEMENTATION.md](./IMPLEMENTATION.md)** for what's real and what's still stubbed. Treat every
+detail as provisional until `v1`; issues and pushback welcome.
 
 ## Why bother
 
