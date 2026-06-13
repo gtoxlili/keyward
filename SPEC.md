@@ -75,26 +75,27 @@ a code to paste, exactly the WalletConnect gesture. The token MUST be short-live
 ```json
 { "kw": "0", "type": "paired", "sid": "kw_sess_...", "mid": "01J...",
   "orchestrator": { "name": "acme-agent", "id": "orch_..." },
-  "pubkey": "ed25519:9d8f...",
-  "sig": "ed25519-sig over sid, base64" }
+  "root_pubkey": "9d8f...",
+  "op": { "pubkey": "1a2b...", "not_after": 1779999999, "root_sig": "..." },
+  "sig": "operational-key signature over sid" }
 ```
 
-- `pubkey` is the Orchestrator's **long-term identity key**; `sig` is a detached signature over the
-  assigned `sid`. The Executor MUST verify `sig` against `pubkey` before treating the session as
-  open, and MUST **pin** `pubkey` on first contact (trust-on-first-use). On any later pairing the
-  Executor MUST require the same pinned identity and a valid `sig`; a different key, or a bad
-  signature, MUST be refused. This is what makes a stolen pairing token alone insufficient to bind
-  (§9): without the Orchestrator's private key, an attacker cannot satisfy the signature.
-- To survive Orchestrator key rotation and multi-instance (autoscaled) deployments without forcing
-  the Owner to re-pair, the pinned `pubkey` SHOULD be a **root/account identity** that signs
-  short-lived per-instance operational keys (the SSH-CA pattern); the Executor then accepts any
-  operational key chaining to the pinned root. Pinning a single bare operational key is NOT
-  RECOMMENDED.
+- `root_pubkey` is the Orchestrator's **long-term root identity**. The Executor MUST **pin** it on
+  first contact (trust-on-first-use) and MUST refuse a later pairing presenting a different root.
+- `op` delegates a short-lived **operational key**: the root signs `op.pubkey ‖ op.not_after`
+  (`root_sig`). The Executor MUST verify `root_sig` against the pinned root and reject an expired
+  `op`. `sig` is the operational key's signature over the assigned `sid`, which the Executor MUST
+  verify before treating the session as open. This is the SSH-CA pattern: a stolen pairing token
+  alone can't bind (§9) — it can't produce a key chaining to the pinned root — yet the Orchestrator
+  can **rotate operational keys / autoscale across reconnects without the Owner re-pairing**, since
+  the Executor pins only the root. Pinning a single bare operational key is NOT RECOMMENDED.
+- The Executor MUST reject `work` / `resume` / `cancel` that arrive before a verified `paired` on the
+  connection.
 
 After `paired` the session is open. TOFU's one weakness is the first contact; to close it the
-Executor SHOULD confirm the `pubkey` fingerprint out of band (a short string shown in the Executor
-UI/terminal, or a passkey/WebAuthn approval whose challenge embeds the fingerprint for hosted
-Orchestrators).
+Executor SHOULD confirm the `root_pubkey` fingerprint out of band (a short string shown in the
+Executor UI/terminal, or a passkey/WebAuthn approval whose challenge embeds the fingerprint for
+hosted Orchestrators).
 
 ## 4. Work intent
 

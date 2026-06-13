@@ -48,7 +48,7 @@ pub async fn run() -> Result<()> {
         name: "acme-agent".into(),
         id: "orch_acme".into(),
         pairing_token: token.into(),
-        signing: SigningKey::generate(&mut OsRng),
+        root: SigningKey::generate(&mut OsRng),
         intents,
     };
     let server = tokio::spawn(async move {
@@ -109,7 +109,7 @@ pub async fn run_resume() -> Result<()> {
         name: "acme-agent".into(),
         id: "orch_acme".into(),
         pairing_token: token.into(),
-        signing: SigningKey::generate(&mut OsRng),
+        root: SigningKey::generate(&mut OsRng),
         intents: Vec::new(), // this demo scripts its own two-connection flow
     };
     let server = tokio::spawn(async move {
