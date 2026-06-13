@@ -65,9 +65,10 @@ the provider is contacted:
 - **rate** — requests / tokens per minute
 - **expiry** — auto-stop after a date
 
-> **v0 note:** the CLI currently ships a built-in default policy (the providers from
-> `KEYWARD_PROVIDERS`, any model, ~$5/month, 60 rpm). A per-Owner policy file is on
-> the roadmap.
+> **Configure it:** point `KEYWARD_POLICY` at a JSON policy file (see
+> [policy.example.json](../policy.example.json)) — provider/model allow-lists, USD
+> budget, rate, expiry. Without it, the CLI uses a built-in default (the
+> `KEYWARD_PROVIDERS`, any model, ~$5/month, 60 rpm).
 
 ## 5. Verify it yourself
 
