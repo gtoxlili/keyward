@@ -69,6 +69,29 @@ Executor 的 `pubkey` 和对配对 token 的签名，没在白名单里的一律
 而且谁给 Provider 请求装上凭证、谁就必然看得见这个请求。如果你需要对**用户**隐藏 payload，那 BYOK 就是错的
 模型——那需要服务端 / TEE 执行。
 
+## 用 Docker 部署
+
+仓库里带了 [`Dockerfile`](../../Dockerfile)——一个镜像、多种服务角色（构建时带上代理、两个 Provider 方言、
+gRPC）。默认命令是代理：
+
+```sh
+docker build -t keyward .
+# OpenAI 兼容网关：:8088 是给你 app 的 HTTP 前端，:8787 是 Owner 的 executor 拨入口。
+# 容器内两者都绑 0.0.0.0。
+docker run -p 8088:8088 -p 8787:8787 keyward
+#   你的 app 里：  OPENAI_BASE_URL=http://<host>:8088/v1   OPENAI_API_KEY=anything
+```
+
+换个命令就是别的角色——`docker run keyward orchestrator`，或在 Owner 机器上跑一个常驻 Executor、
+key 作为环境变量密文传入：
+
+```sh
+docker run -e KEYWARD_ORCH_URL=grpc://orch.example.com:443 \
+           -e KEYWARD_PAIRING_TOKEN=pt_... -e OPENAI_API_KEY=sk-... keyward executor
+```
+
+镜像以非 root 用户运行、不需要任何构建期密文。监听地址用 `KEYWARD_PROXY_LISTEN` / `KEYWARD_LISTEN` 调整。
+
 ---
 
 本地试一下：[完整走一遍](./walkthrough.md) · 读协议格式：[spec.md](../spec.md) · 回到[文档索引](./README.md)。

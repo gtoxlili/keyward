@@ -83,6 +83,31 @@ traffic (that's the point), and whoever attaches the credential to the provider 
 necessarily sees that call. If you need to hide payloads *from the user*, BYOK is the
 wrong model — that requires server-side / TEE execution.
 
+## Deploy with Docker
+
+The repo ships a [`Dockerfile`](../../Dockerfile) — one image, several server roles
+(built with the proxy, both provider dialects, and gRPC). The default command is the
+proxy:
+
+```sh
+docker build -t keyward .
+# OpenAI-compatible gateway: :8088 is the HTTP front for your app, :8787 is where the
+# Owner's executor dials in. Both bind 0.0.0.0 inside the container.
+docker run -p 8088:8088 -p 8787:8787 keyward
+#   in your app:  OPENAI_BASE_URL=http://<host>:8088/v1  OPENAI_API_KEY=anything
+```
+
+Override the command for the other roles — `docker run keyward orchestrator`, or an
+always-on Executor on the Owner's box with the key as an env secret:
+
+```sh
+docker run -e KEYWARD_ORCH_URL=grpc://orch.example.com:443 \
+           -e KEYWARD_PAIRING_TOKEN=pt_... -e OPENAI_API_KEY=sk-... keyward executor
+```
+
+It runs as a non-root user and needs no build-time secrets. Tune the listen addresses
+with `KEYWARD_PROXY_LISTEN` / `KEYWARD_LISTEN`.
+
 ---
 
 Try it locally: [a full walkthrough](./walkthrough.md) · Read the wire format:
