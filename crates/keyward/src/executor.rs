@@ -577,20 +577,24 @@ async fn verify_chain_and_pin(
     Ok(())
 }
 
-/// Standalone executor: dial a real Orchestrator using env config.
-pub async fn run_cli() -> Result<()> {
-    let url = std::env::var("KEYWARD_ORCH_URL")
-        .map_err(|_| anyhow!("set KEYWARD_ORCH_URL, e.g. ws://127.0.0.1:8787"))?;
-    let token = std::env::var("KEYWARD_PAIRING_TOKEN").map_err(|_| anyhow!("set KEYWARD_PAIRING_TOKEN"))?;
+/// Load the Owner policy from `KEYWARD_POLICY` (a JSON file matching the §6 policy
+/// object), or build a sensible default from `KEYWARD_PROVIDERS`.
+fn load_policy() -> Result<Policy> {
+    if let Ok(path) = std::env::var("KEYWARD_POLICY") {
+        let text = std::fs::read_to_string(&path).map_err(|e| anyhow!("read policy file {path}: {e}"))?;
+        let policy: Policy =
+            serde_json::from_str(&text).map_err(|e| anyhow!("parse policy file {path}: {e}"))?;
+        println!("[executor] loaded policy from {path}");
+        return Ok(policy);
+    }
     let providers: Vec<String> = std::env::var("KEYWARD_PROVIDERS")
         .unwrap_or_else(|_| "mock,openai,openai-responses,anthropic".into())
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())
         .collect();
-
-    let policy = Policy {
-        providers: Some(providers.clone()),
+    Ok(Policy {
+        providers: Some(providers),
         budget: Some(keyward_proto::Budget {
             limit_usd: 5.0,
             window: "month".into(),
@@ -601,7 +605,19 @@ pub async fn run_cli() -> Result<()> {
             tpm: None,
         }),
         ..Default::default()
-    };
+    })
+}
+
+/// Standalone executor: dial a real Orchestrator using env config.
+pub async fn run_cli() -> Result<()> {
+    let url = std::env::var("KEYWARD_ORCH_URL")
+        .map_err(|_| anyhow!("set KEYWARD_ORCH_URL, e.g. ws://127.0.0.1:8787"))?;
+    let token = std::env::var("KEYWARD_PAIRING_TOKEN").map_err(|_| anyhow!("set KEYWARD_PAIRING_TOKEN"))?;
+
+    // Owner policy: a JSON file at KEYWARD_POLICY, else a sensible built-in default
+    // (allow the KEYWARD_PROVIDERS, any model, $5/month, 60 rpm).
+    let policy = load_policy()?;
+    let providers: Vec<String> = policy.providers.clone().unwrap_or_default();
     let identity = identity::load_or_create_identity();
     println!(
         "[executor] identity fp={}  (give the orchestrator this pubkey to be allow-listed: {})",
@@ -638,5 +654,13 @@ mod tests {
         assert_eq!(b.chunks.front().unwrap().0, 5);
         // A resume cursor below base_seq is what deliver() reports as unrecoverable.
         assert!(3 < b.base_seq, "seq 3 fell off the ring → unrecoverable");
+    }
+
+    #[test]
+    fn example_policy_file_parses() {
+        let p: Policy = serde_json::from_str(include_str!("../../../docs/policy.example.json")).unwrap();
+        assert_eq!(p.providers.as_ref().unwrap().len(), 3);
+        assert!(p.budget.is_some() && p.rate.is_some());
+        assert_eq!(p.models.as_ref().unwrap()[0], "gpt-4o*");
     }
 }

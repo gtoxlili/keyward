@@ -47,7 +47,7 @@ verification** and the **Orchestrator SDK / proxy**.
 - [ ] **Browser / WASM Executor** — the ephemeral, in-tab interactive case
 - [ ] **Prebuilt binaries / installer** — so users don't have to `cargo build`
 - [ ] **QR pairing UX** — the WalletConnect gesture (today the pairing token is passed by env var)
-- [ ] **Per-Owner policy file** — user-editable limits (today the CLI ships a built-in default)
+- [x] **Per-Owner policy file** — `KEYWARD_POLICY` points the executor at a JSON policy ([example](./policy.example.json)); falls back to a built-in default
 
 ### Coverage / verification
 - [~] **Real-provider verification** — the OpenAI Chat Completions adapter is verified end to end against a live streaming API (streaming SSE parse + usage extraction); there's an opt-in `live_*` test (`crates/keyward/src/e2e_tests.rs`, gated on `KEYWARD_LIVE_BASE_URL` + `KEYWARD_LIVE_KEY`). The Responses API and Anthropic Messages are still mock-only.

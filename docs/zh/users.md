@@ -58,8 +58,9 @@ keyward executor
 - **速率** —— 每分钟请求数 / token 数
 - **过期** —— 到期自动停止
 
-> **v0 说明：** 目前 CLI 内置一套默认策略（来自 `KEYWARD_PROVIDERS` 的 Provider、任意模型、约 $5/月、
-> 60 rpm）。按用户自定义的策略文件在路线图上。
+> **配置：** 把 `KEYWARD_POLICY` 指向一个 JSON 策略文件（见
+> [policy.example.json](../policy.example.json)）—— Provider/模型白名单、美元预算、速率、过期。
+> 不设的话，CLI 用内置默认（`KEYWARD_PROVIDERS`、任意模型、约 $5/月、60 rpm）。
 
 ## 5. 自己验证
 
