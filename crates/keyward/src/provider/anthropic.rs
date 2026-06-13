@@ -27,17 +27,27 @@ impl UsageAcc {
         match ev.get("type").and_then(Value::as_str) {
             Some("message_start") => {
                 if let Some(u) = ev.pointer("/message/usage") {
-                    self.input_tokens = u.get("input_tokens").and_then(Value::as_u64).unwrap_or(self.input_tokens);
-                    self.cache_creation_tokens =
-                        u.get("cache_creation_input_tokens").and_then(Value::as_u64).unwrap_or(self.cache_creation_tokens);
-                    self.cache_read_tokens =
-                        u.get("cache_read_input_tokens").and_then(Value::as_u64).unwrap_or(self.cache_read_tokens);
+                    self.input_tokens = u
+                        .get("input_tokens")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(self.input_tokens);
+                    self.cache_creation_tokens = u
+                        .get("cache_creation_input_tokens")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(self.cache_creation_tokens);
+                    self.cache_read_tokens = u
+                        .get("cache_read_input_tokens")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(self.cache_read_tokens);
                 }
             }
             Some("message_delta") => {
                 // output only — deliberately NOT re-reading cache here.
                 if let Some(u) = ev.get("usage") {
-                    self.output_tokens = u.get("output_tokens").and_then(Value::as_u64).unwrap_or(self.output_tokens);
+                    self.output_tokens = u
+                        .get("output_tokens")
+                        .and_then(Value::as_u64)
+                        .unwrap_or(self.output_tokens);
                 }
             }
             _ => {}
@@ -45,7 +55,10 @@ impl UsageAcc {
     }
 
     pub fn to_usage(&self) -> Usage {
-        Usage { input_tokens: self.input_tokens, output_tokens: self.output_tokens }
+        Usage {
+            input_tokens: self.input_tokens,
+            output_tokens: self.output_tokens,
+        }
     }
 }
 
@@ -55,9 +68,9 @@ pub async fn call(
     request: &Value,
     key: &secrecy::SecretString,
 ) -> anyhow::Result<tokio::sync::mpsc::Receiver<super::Event>> {
+    use super::Event;
     use futures_util::StreamExt;
     use secrecy::ExposeSecret;
-    use super::Event;
 
     let base = std::env::var("ANTHROPIC_BASE_URL").unwrap_or_else(|_| "https://api.anthropic.com".into());
     let endpoint = format!("{}/v1/messages", base.trim_end_matches('/'));
@@ -78,7 +91,11 @@ pub async fn call(
     let status = resp.status();
     if !status.is_success() {
         let text = resp.text().await.unwrap_or_default();
-        anyhow::bail!("provider_status {}: {}", status.as_u16(), text.chars().take(200).collect::<String>());
+        anyhow::bail!(
+            "provider_status {}: {}",
+            status.as_u16(),
+            text.chars().take(200).collect::<String>()
+        );
     }
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Event>(16);
@@ -92,21 +109,35 @@ pub async fn call(
             while let Some(pos) = buf.find("\n\n") {
                 let raw: String = buf.drain(..pos + 2).collect();
                 for line in raw.lines() {
-                    let Some(data) = line.trim_start().strip_prefix("data:") else { continue };
-                    let Ok(v) = serde_json::from_str::<Value>(data.trim()) else { continue };
+                    let Some(data) = line.trim_start().strip_prefix("data:") else {
+                        continue;
+                    };
+                    let Ok(v) = serde_json::from_str::<Value>(data.trim()) else {
+                        continue;
+                    };
                     acc.on_event(&v);
                     let is_stop = v.get("type").and_then(Value::as_str) == Some("message_stop");
                     if tx.send(Event::Chunk(v)).await.is_err() {
                         return;
                     }
                     if is_stop {
-                        let _ = tx.send(Event::Done { result: None, usage: acc.to_usage() }).await;
+                        let _ = tx
+                            .send(Event::Done {
+                                result: None,
+                                usage: acc.to_usage(),
+                            })
+                            .await;
                         return;
                     }
                 }
             }
         }
-        let _ = tx.send(Event::Done { result: None, usage: acc.to_usage() }).await;
+        let _ = tx
+            .send(Event::Done {
+                result: None,
+                usage: acc.to_usage(),
+            })
+            .await;
     });
 
     Ok(rx)
@@ -137,7 +168,10 @@ mod tests {
 
         assert_eq!(acc.input_tokens, 100);
         assert_eq!(acc.output_tokens, 80);
-        assert_eq!(acc.cache_read_tokens, 200, "cache read must not be doubled to 400");
+        assert_eq!(
+            acc.cache_read_tokens, 200,
+            "cache read must not be doubled to 400"
+        );
         assert_eq!(acc.cache_creation_tokens, 50);
     }
 }

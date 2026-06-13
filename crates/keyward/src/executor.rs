@@ -52,8 +52,15 @@ struct Runtime {
 
 /// Terminal outcome of an intent, retained until delivered.
 enum Terminal {
-    Done { result: Option<Value>, usage: Usage },
-    Error { code: String, message: String, provider_status: Option<u16> },
+    Done {
+        result: Option<Value>,
+        usage: Usage,
+    },
+    Error {
+        code: String,
+        message: String,
+        provider_status: Option<u16>,
+    },
 }
 
 /// Per-intent ring buffer of native chunks + terminal state.
@@ -66,7 +73,12 @@ struct IntentBuf {
 
 impl IntentBuf {
     fn new() -> Self {
-        IntentBuf { chunks: VecDeque::new(), base_seq: 0, next_seq: 0, terminal: None }
+        IntentBuf {
+            chunks: VecDeque::new(),
+            base_seq: 0,
+            next_seq: 0,
+            terminal: None,
+        }
     }
     fn push(&mut self, delta: Value) {
         self.chunks.push_back((self.next_seq, delta));
@@ -118,7 +130,9 @@ pub async fn run(url: &str, pairing_token: &str, cfg: ExecutorConfig) -> Result<
                 }
                 attempt += 1;
                 if attempt > 12 {
-                    return Err(anyhow!("giving up reconnecting with {pending} intent(s) in flight"));
+                    return Err(anyhow!(
+                        "giving up reconnecting with {pending} intent(s) in flight"
+                    ));
                 }
                 println!("[executor] channel lost; {pending} intent(s) in flight, reconnecting (attempt {attempt})…");
                 sleep(Duration::from_millis(backoff)).await;
@@ -128,8 +142,15 @@ pub async fn run(url: &str, pairing_token: &str, cfg: ExecutorConfig) -> Result<
     }
 }
 
-async fn serve_once(url: &str, pairing_token: &str, cfg: &Arc<ExecutorConfig>, shared: &Arc<Shared>) -> Result<Flow> {
-    let (ws, _resp) = connect_async(url).await.map_err(|e| anyhow!("dial-out to {url} failed: {e}"))?;
+async fn serve_once(
+    url: &str,
+    pairing_token: &str,
+    cfg: &Arc<ExecutorConfig>,
+    shared: &Arc<Shared>,
+) -> Result<Flow> {
+    let (ws, _resp) = connect_async(url)
+        .await
+        .map_err(|e| anyhow!("dial-out to {url} failed: {e}"))?;
     let (mut write, mut read) = ws.split();
 
     let (out, mut out_rx) = mpsc::channel::<Frame>(64);
@@ -149,18 +170,34 @@ async fn serve_once(url: &str, pairing_token: &str, cfg: &Arc<ExecutorConfig>, s
     let flow = loop {
         match wire::recv(&mut read).await {
             Ok(Some(frame)) => match frame.body {
-                Body::Paired { orchestrator, pubkey, sig } => {
+                Body::Paired {
+                    orchestrator,
+                    pubkey,
+                    sig,
+                } => {
                     let s = frame.sid.clone().unwrap_or_default();
                     if let Err(e) = verify_and_pin(&cfg.pinned, &s, &pubkey, &sig).await {
                         eprintln!("[executor] {e}");
                         break Flow::Stop;
                     }
-                    orch_id = orchestrator.id.clone().unwrap_or_else(|| orchestrator.name.clone());
+                    orch_id = orchestrator
+                        .id
+                        .clone()
+                        .unwrap_or_else(|| orchestrator.name.clone());
                     println!("[executor] paired  sid={s}  orchestrator={orch_id}");
                     sid = Some(s);
                 }
                 Body::Work { provider, request } => {
-                    spawn_work(frame.mid, sid.clone(), provider, request, cfg.clone(), shared.clone(), out.clone(), orch_id.clone());
+                    spawn_work(
+                        frame.mid,
+                        sid.clone(),
+                        provider,
+                        request,
+                        cfg.clone(),
+                        shared.clone(),
+                        out.clone(),
+                        orch_id.clone(),
+                    );
                 }
                 Body::Resume { intent_mid, last_seq } => {
                     let start = if last_seq < 0 { 0 } else { last_seq as u64 + 1 };
@@ -198,7 +235,11 @@ fn hello_frame(cfg: &ExecutorConfig, pairing_token: &str) -> Frame {
         new_mid(),
         Body::Hello {
             pairing_token: pairing_token.to_string(),
-            executor: Peer { name: cfg.name.clone(), version: Some(env!("CARGO_PKG_VERSION").to_string()), id: None },
+            executor: Peer {
+                name: cfg.name.clone(),
+                version: Some(env!("CARGO_PKG_VERSION").to_string()),
+                id: None,
+            },
             providers: cfg.providers.clone(),
             policy_digest: wire::policy_digest_placeholder(&policy_canon),
             pubkey: None,
@@ -218,30 +259,63 @@ fn spawn_work(
     orchestrator: String,
 ) {
     tokio::spawn(async move {
-        let model = request.get("model").and_then(Value::as_str).unwrap_or("").to_string();
+        let model = request
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
 
         // Policy check in the §6 order, against live counters.
         let denied = {
             let r = shared.runtime.lock().await;
-            let live = Live { rpm_used: r.rpm_used, spent_usd: r.spent_usd, now_rfc3339: "" };
+            let live = Live {
+                rpm_used: r.rpm_used,
+                spent_usd: r.spent_usd,
+                now_rfc3339: "",
+            };
             cfg.policy.check(&provider, &model, &orchestrator, live).err()
         };
         if let Some(d) = denied {
-            println!("[executor] DENY  provider={provider} model={model}  ->  {}", d.code());
+            println!(
+                "[executor] DENY  provider={provider} model={model}  ->  {}",
+                d.code()
+            );
             let _ = out
-                .send(Frame::new(sid, mid, Body::WorkError { code: d.code().into(), message: "rejected by policy".into(), provider_status: None }))
+                .send(Frame::new(
+                    sid,
+                    mid,
+                    Body::WorkError {
+                        code: d.code().into(),
+                        message: "rejected by policy".into(),
+                        provider_status: None,
+                    },
+                ))
                 .await;
             return; // provider never contacted, nothing resumable
         }
 
         shared.runtime.lock().await.rpm_used += 1;
-        let _ = out.send(Frame::new(sid.clone(), mid.clone(), Body::WorkAccepted {})).await;
+        let _ = out
+            .send(Frame::new(sid.clone(), mid.clone(), Body::WorkAccepted {}))
+            .await;
         println!("[executor] ACCEPT provider={provider} model={model}  (key injected locally)");
 
-        let intent = Arc::new(Intent { buf: Mutex::new(IntentBuf::new()), cancelled: AtomicBool::new(false), cancel: Notify::new() });
+        let intent = Arc::new(Intent {
+            buf: Mutex::new(IntentBuf::new()),
+            cancelled: AtomicBool::new(false),
+            cancel: Notify::new(),
+        });
         shared.store.lock().await.insert(mid.clone(), intent.clone());
 
-        spawn_producer(intent.clone(), provider, model, request, cfg, shared.clone(), mid.clone());
+        spawn_producer(
+            intent.clone(),
+            provider,
+            model,
+            request,
+            cfg,
+            shared.clone(),
+            mid.clone(),
+        );
         deliver(intent, shared, out, sid, mid, 0).await;
     });
 }
@@ -256,7 +330,15 @@ fn spawn_resume(mid: String, sid: Option<String>, shared: Arc<Shared>, out: mpsc
             }
             None => {
                 let _ = out
-                    .send(Frame::new(sid, mid, Body::WorkError { code: "unrecoverable".into(), message: "no such in-flight intent".into(), provider_status: None }))
+                    .send(Frame::new(
+                        sid,
+                        mid,
+                        Body::WorkError {
+                            code: "unrecoverable".into(),
+                            message: "no such in-flight intent".into(),
+                            provider_status: None,
+                        },
+                    ))
                     .await;
             }
         }
@@ -276,7 +358,11 @@ fn spawn_producer(
         let mut rx = match provider::call(&provider, &model, &request, &cfg.provider_key).await {
             Ok(rx) => rx,
             Err(e) => {
-                intent.buf.lock().await.terminal = Some(Terminal::Error { code: "provider_network".into(), message: e.to_string(), provider_status: None });
+                intent.buf.lock().await.terminal = Some(Terminal::Error {
+                    code: "provider_network".into(),
+                    message: e.to_string(),
+                    provider_status: None,
+                });
                 return;
             }
         };
@@ -284,7 +370,11 @@ fn spawn_producer(
         loop {
             if intent.cancelled.load(Ordering::SeqCst) {
                 println!("[executor] {mid} cancelled — stopping read");
-                intent.buf.lock().await.terminal = Some(Terminal::Error { code: "cancelled".into(), message: "cancelled by orchestrator".into(), provider_status: None });
+                intent.buf.lock().await.terminal = Some(Terminal::Error {
+                    code: "cancelled".into(),
+                    message: "cancelled by orchestrator".into(),
+                    provider_status: None,
+                });
                 return;
             }
             tokio::select! {
@@ -316,7 +406,14 @@ fn spawn_producer(
 /// Stream an intent to the current connection starting at `start_seq`: replay any
 /// retained chunks, then tail live until the terminal frame. Returns on send
 /// failure (channel dropped → suspend) without removing the intent.
-async fn deliver(intent: Arc<Intent>, shared: Arc<Shared>, out: mpsc::Sender<Frame>, sid: Option<String>, mid: String, start_seq: u64) {
+async fn deliver(
+    intent: Arc<Intent>,
+    shared: Arc<Shared>,
+    out: mpsc::Sender<Frame>,
+    sid: Option<String>,
+    mid: String,
+    start_seq: u64,
+) {
     let mut cursor = start_seq;
     loop {
         enum Step {
@@ -340,7 +437,15 @@ async fn deliver(intent: Arc<Intent>, shared: Arc<Shared>, out: mpsc::Sender<Fra
         };
         match step {
             Step::Send(seq, delta) => {
-                if out.send(Frame::new(sid.clone(), mid.clone(), Body::WorkChunk { seq, delta })).await.is_err() {
+                if out
+                    .send(Frame::new(
+                        sid.clone(),
+                        mid.clone(),
+                        Body::WorkChunk { seq, delta },
+                    ))
+                    .await
+                    .is_err()
+                {
                     return; // suspend: connection dropped, keep the intent for resume
                 }
                 cursor += 1;
@@ -352,7 +457,15 @@ async fn deliver(intent: Arc<Intent>, shared: Arc<Shared>, out: mpsc::Sender<Fra
             }
             Step::Unrecoverable => {
                 let _ = out
-                    .send(Frame::new(sid, mid.clone(), Body::WorkError { code: "unrecoverable".into(), message: "resume past retained buffer".into(), provider_status: None }))
+                    .send(Frame::new(
+                        sid,
+                        mid.clone(),
+                        Body::WorkError {
+                            code: "unrecoverable".into(),
+                            message: "resume past retained buffer".into(),
+                            provider_status: None,
+                        },
+                    ))
                     .await;
                 shared.store.lock().await.remove(&mid);
                 return;
@@ -364,29 +477,65 @@ async fn deliver(intent: Arc<Intent>, shared: Arc<Shared>, out: mpsc::Sender<Fra
 
 fn terminal_frame(sid: Option<String>, mid: String, t: &Terminal) -> Frame {
     match t {
-        Terminal::Done { result, usage } => Frame::new(sid, mid, Body::WorkDone { result: result.clone(), usage: usage.clone() }),
-        Terminal::Error { code, message, provider_status } => {
-            Frame::new(sid, mid, Body::WorkError { code: code.clone(), message: message.clone(), provider_status: *provider_status })
-        }
+        Terminal::Done { result, usage } => Frame::new(
+            sid,
+            mid,
+            Body::WorkDone {
+                result: result.clone(),
+                usage: usage.clone(),
+            },
+        ),
+        Terminal::Error {
+            code,
+            message,
+            provider_status,
+        } => Frame::new(
+            sid,
+            mid,
+            Body::WorkError {
+                code: code.clone(),
+                message: message.clone(),
+                provider_status: *provider_status,
+            },
+        ),
     }
 }
 
 /// Verify the Orchestrator's signature over the assigned `sid`, then pin its key
 /// (TOFU). A reconnect under a *different* key, or a bad signature, is refused —
 /// this is what makes a stolen pairing token alone insufficient to bind (§9).
-async fn verify_and_pin(pinned: &Arc<Mutex<Option<VerifyingKey>>>, sid: &str, pubkey_hex: &str, sig_hex: &str) -> Result<()> {
-    let pk: [u8; 32] = wire::unhex(pubkey_hex).ok_or_else(|| anyhow!("bad pubkey hex"))?.as_slice().try_into().map_err(|_| anyhow!("pubkey must be 32 bytes"))?;
+async fn verify_and_pin(
+    pinned: &Arc<Mutex<Option<VerifyingKey>>>,
+    sid: &str,
+    pubkey_hex: &str,
+    sig_hex: &str,
+) -> Result<()> {
+    let pk: [u8; 32] = wire::unhex(pubkey_hex)
+        .ok_or_else(|| anyhow!("bad pubkey hex"))?
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow!("pubkey must be 32 bytes"))?;
     let vk = VerifyingKey::from_bytes(&pk).map_err(|e| anyhow!("bad pubkey: {e}"))?;
-    let sig: [u8; 64] = wire::unhex(sig_hex).ok_or_else(|| anyhow!("bad sig hex"))?.as_slice().try_into().map_err(|_| anyhow!("sig must be 64 bytes"))?;
+    let sig: [u8; 64] = wire::unhex(sig_hex)
+        .ok_or_else(|| anyhow!("bad sig hex"))?
+        .as_slice()
+        .try_into()
+        .map_err(|_| anyhow!("sig must be 64 bytes"))?;
     let sig = Signature::from_bytes(&sig);
-    vk.verify(sid.as_bytes(), &sig).map_err(|_| anyhow!("orchestrator signature INVALID over sid — refusing to bind"))?;
+    vk.verify(sid.as_bytes(), &sig)
+        .map_err(|_| anyhow!("orchestrator signature INVALID over sid — refusing to bind"))?;
 
     let mut guard = pinned.lock().await;
     match guard.as_ref() {
-        Some(existing) if existing.to_bytes() != vk.to_bytes() => Err(anyhow!("pinned orchestrator key changed — refusing (possible impersonation / stolen token)")),
+        Some(existing) if existing.to_bytes() != vk.to_bytes() => Err(anyhow!(
+            "pinned orchestrator key changed — refusing (possible impersonation / stolen token)"
+        )),
         Some(_) => Ok(()),
         None => {
-            println!("[executor] TOFU: pinning orchestrator key  fp={}", wire::fingerprint(&vk.to_bytes()));
+            println!(
+                "[executor] TOFU: pinning orchestrator key  fp={}",
+                wire::fingerprint(&vk.to_bytes())
+            );
             *guard = Some(vk);
             Ok(())
         }
@@ -395,9 +544,12 @@ async fn verify_and_pin(pinned: &Arc<Mutex<Option<VerifyingKey>>>, sid: &str, pu
 
 /// Standalone executor: dial a real Orchestrator using env config.
 pub async fn run_cli() -> Result<()> {
-    let url = std::env::var("KEYWARD_ORCH_URL").map_err(|_| anyhow!("set KEYWARD_ORCH_URL, e.g. ws://127.0.0.1:8787"))?;
+    let url = std::env::var("KEYWARD_ORCH_URL")
+        .map_err(|_| anyhow!("set KEYWARD_ORCH_URL, e.g. ws://127.0.0.1:8787"))?;
     let token = std::env::var("KEYWARD_PAIRING_TOKEN").map_err(|_| anyhow!("set KEYWARD_PAIRING_TOKEN"))?;
-    let key = std::env::var("KEYWARD_PROVIDER_KEY").or_else(|_| std::env::var("OPENAI_API_KEY")).unwrap_or_default();
+    let key = std::env::var("KEYWARD_PROVIDER_KEY")
+        .or_else(|_| std::env::var("OPENAI_API_KEY"))
+        .unwrap_or_default();
     let providers: Vec<String> = std::env::var("KEYWARD_PROVIDERS")
         .unwrap_or_else(|_| "mock,openai,anthropic".into())
         .split(',')
@@ -407,8 +559,15 @@ pub async fn run_cli() -> Result<()> {
 
     let policy = Policy {
         providers: Some(providers.clone()),
-        budget: Some(keyward_proto::Budget { limit_usd: 5.0, window: "month".into(), spent_usd: 0.0 }),
-        rate: Some(keyward_proto::Rate { rpm: Some(60), tpm: None }),
+        budget: Some(keyward_proto::Budget {
+            limit_usd: 5.0,
+            window: "month".into(),
+            spent_usd: 0.0,
+        }),
+        rate: Some(keyward_proto::Rate {
+            rpm: Some(60),
+            tpm: None,
+        }),
         ..Default::default()
     };
     let cfg = ExecutorConfig {

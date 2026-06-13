@@ -73,7 +73,10 @@ fn mock_openai(model: &str, request: &Value) -> mpsc::Receiver<Event> {
     let last_user = last_user_text(request);
     let input_tokens = rough_tokens(&last_user) + rough_tokens(model);
 
-    let reply = format!("Mock reply from {model}: I received {} chars of prompt.", last_user.len());
+    let reply = format!(
+        "Mock reply from {model}: I received {} chars of prompt.",
+        last_user.len()
+    );
     let pieces: Vec<String> = reply.split_inclusive(' ').map(str::to_string).collect();
     let output_tokens = pieces.len() as u64;
 
@@ -88,7 +91,10 @@ fn mock_openai(model: &str, request: &Value) -> mpsc::Receiver<Event> {
         let _ = tx
             .send(Event::Done {
                 result: None,
-                usage: Usage { input_tokens, output_tokens },
+                usage: Usage {
+                    input_tokens,
+                    output_tokens,
+                },
             })
             .await;
     });
@@ -101,7 +107,11 @@ fn last_user_text(request: &Value) -> String {
     request
         .get("messages")
         .and_then(|m| m.as_array())
-        .and_then(|a| a.iter().rev().find(|m| m.get("role").and_then(Value::as_str) == Some("user")))
+        .and_then(|a| {
+            a.iter()
+                .rev()
+                .find(|m| m.get("role").and_then(Value::as_str) == Some("user"))
+        })
         .and_then(|m| m.get("content").and_then(Value::as_str))
         .unwrap_or("(no user message)")
         .to_string()
@@ -128,7 +138,9 @@ fn mock_anthropic(model: &str, request: &Value) -> mpsc::Receiver<Event> {
             "cache_read_input_tokens": 0, "output_tokens": 1
         }}
     }));
-    events.push(json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" }}));
+    events.push(
+        json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" }}),
+    );
     for piece in pieces {
         events.push(json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": piece }}));
     }
@@ -145,7 +157,12 @@ fn mock_anthropic(model: &str, request: &Value) -> mpsc::Receiver<Event> {
             }
             tokio::time::sleep(std::time::Duration::from_millis(30)).await;
         }
-        let _ = tx.send(Event::Done { result: None, usage: acc.to_usage() }).await;
+        let _ = tx
+            .send(Event::Done {
+                result: None,
+                usage: acc.to_usage(),
+            })
+            .await;
     });
 
     rx

@@ -123,4 +123,7 @@ The rest is stubbed, roughly in the order I'd reach for next:
 - **`policy_digest`** is an FNV stand-in, not `sha256`.
 - **Secret storage.** The CLI reads the key from an env var; OS-keychain
   (`keyring`) + `mlock`/zeroize hardening is not in yet.
-- **Reproducible-build pipeline** (pinned toolchain/container, SLSA provenance).
+- **Byte-reproducible builds.** CI (fmt/clippy/test) and a release workflow that
+  publishes checksums + a signed SLSA build-provenance attestation are in
+  `.github/workflows/`; the pinned-container build that makes the binary
+  *bit-for-bit* reproducible is still TODO.

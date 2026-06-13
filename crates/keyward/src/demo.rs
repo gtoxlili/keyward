@@ -67,8 +67,15 @@ pub async fn run() -> Result<()> {
         providers: Some(vec!["mock".into(), "openai".into()]),
         models: Some(vec!["gpt-4o*".into(), "claude-3-5-sonnet-*".into()]),
         orchestrators: Some(vec!["orch_acme".into()]),
-        budget: Some(Budget { limit_usd: 5.0, window: "month".into(), spent_usd: 0.0 }),
-        rate: Some(Rate { rpm: Some(60), tpm: None }),
+        budget: Some(Budget {
+            limit_usd: 5.0,
+            window: "month".into(),
+            spent_usd: 0.0,
+        }),
+        rate: Some(Rate {
+            rpm: Some(60),
+            tpm: None,
+        }),
         expires_at: None,
     };
     let cfg = ExecutorConfig {
@@ -115,8 +122,15 @@ pub async fn run_resume() -> Result<()> {
         providers: Some(vec!["mock".into()]),
         models: Some(vec!["gpt-4o*".into()]),
         orchestrators: Some(vec!["orch_acme".into()]),
-        budget: Some(Budget { limit_usd: 5.0, window: "month".into(), spent_usd: 0.0 }),
-        rate: Some(Rate { rpm: Some(120), tpm: None }),
+        budget: Some(Budget {
+            limit_usd: 5.0,
+            window: "month".into(),
+            spent_usd: 0.0,
+        }),
+        rate: Some(Rate {
+            rpm: Some(120),
+            tpm: None,
+        }),
         expires_at: None,
     };
     let cfg = ExecutorConfig {
