@@ -31,6 +31,7 @@ Keyward 把一个 AI 应用拆成**大脑**和一双**手**：
 - [常见问题](./faq.md)
 - [协议格式（SPEC）](../spec.md)
 - [参考实现（IMPLEMENTATION）](../implementation.md)
+- [路线图与现状 —— 做了什么、还差什么](../roadmap.md)
 
 ## 现状与当前限制
 

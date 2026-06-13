@@ -35,6 +35,7 @@ to the app. If you've used WalletConnect, this is that idea for API keys.
 - [FAQ](./faq.md)
 - [Protocol wire format (SPEC)](../spec.md)
 - [Reference implementation (IMPLEMENTATION)](../implementation.md)
+- [Roadmap & status — what's built and what's left](../roadmap.md)
 
 ## Status & current limits
 
