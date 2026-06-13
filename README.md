@@ -182,9 +182,11 @@ The high-level shape:
 - [~] Reference Executor — open source, reproducible; a local binary plus one-click serverless
       templates. A Rust **walking skeleton** runs end to end today — see
       [IMPLEMENTATION.md](./docs/implementation.md). Serverless templates and reproducible-build pipeline next.
-- [ ] Orchestrator SDK — ideally you integrate by swapping your provider client for one line.
-- [~] Transport adapters — outbound **WebSocket** first (done in the skeleton), then a gRPC bidi
-      stream; the protocol is transport-agnostic. (Tunnel appliances are the wrong shape — see SPEC §1.)
+- [x] Orchestrator SDK — Rust (`keyward-sdk`) and Go (`sdk/go`) clients, plus a zero-code-change
+      OpenAI-compatible proxy (`keyward proxy`) so an app integrates by pointing `OPENAI_BASE_URL` at it.
+- [x] Transport adapters — outbound **WebSocket** and a **gRPC** bidi stream (scheme-selected, same
+      envelope, the Executor stays the dialing client); the protocol is transport-agnostic. (Tunnel
+      appliances are the wrong shape — see SPEC §1.)
 - [~] Provider adapters — OpenAI Chat-Completions, the OpenAI Responses API, and Anthropic Messages
       all land in the skeleton (Chat-Completions covers OpenAI-compatible providers for free);
       Gemini and so on next.

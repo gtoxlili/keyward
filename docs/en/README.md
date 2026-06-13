@@ -43,9 +43,9 @@ to the app. If you've used WalletConnect, this is that idea for API keys.
 - **Providers:** OpenAI Chat Completions, OpenAI Responses, Anthropic Messages
   (Chat-Completions also covers OpenAI-compatible providers). Gemini / tool-use /
   images are not verified yet.
-- **Not built yet:** prebuilt binaries, QR pairing, a per-Owner policy file,
-  single-use-token enforcement on reconnect, your-own serverless templates, the
-  Orchestrator SDK / OpenAI-compatible proxy.
+- **Not built yet:** prebuilt binaries, QR pairing, your-own serverless Executor
+  templates, a browser / WASM Executor, a byte-reproducible build, and broader
+  provider (Gemini, etc.) / multimodal (tool-use, images) coverage.
 
 Found a hole in the core promise — any way the app could get your key? Please report
 it privately ([SECURITY.md](../../SECURITY.md)).

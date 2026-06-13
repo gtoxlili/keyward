@@ -1,97 +1,100 @@
-# 集成 Keyward —— 面向接入方
+# 集成 Keyward——写给应用开发者
 
 🌐 [English](../en/integration.md) · **中文**
 
-> 你在做应用 / SaaS —— 即 **Orchestrator**。你不持有 key。你的职责：签发配对 token、接受 Executor 的拨入、
-> 发送工作意图、把流式结果转给你的用户。不熟悉模型？读[文档索引](./README.md)。
+> 你在做应用 / SaaS，也就是 **Orchestrator** 这一方。你不持有 key。你要做的是：签发配对 token、
+> 接受 Executor 的拨入、把工作意图发过去、再把流式结果转发给你的用户。还不熟悉这套模型？先看[文档索引](./README.md)。
 
-## 现状与路线
+## 现在能用什么、还有什么在路上
 
-**现在 · 零改动：** 跑 **OpenAI 兼容代理** —— `keyward proxy`（`--features proxy` 构建）。它暴露一个
-OpenAI 风格的 HTTP 端点、背后接已配对的 Executor，任何现存应用把 base URL 指过来即可接入：
+**最省事，零改动：** 直接跑 **OpenAI 兼容代理**——`keyward proxy`（用 `--features proxy` 构建）。
+它对外暴露一个 OpenAI 风格的 HTTP 端点，背后接着已经配对好的 Executor；任何现成应用只要把 base URL
+指过来就能接入：
 
 ```sh
-keyward proxy   # 等一个 executor 配对，然后服务 http://127.0.0.1:8088
-# 你的 app 里：  OPENAI_BASE_URL=http://127.0.0.1:8088/v1   OPENAI_API_KEY=anything
+keyward proxy   # 等一个 executor 配对完成，然后在 http://127.0.0.1:8088 提供服务
+# 在你的应用里：  OPENAI_BASE_URL=http://127.0.0.1:8088/v1   OPENAI_API_KEY=anything
 ```
 
-`/v1/chat/completions`、`/v1/responses`、`/v1/messages` 按路径路由到对应方言；流式原样转发，所以你
-现有的 OpenAI SDK 直接能解析。key 始终留在 Executor 上，app 的 `OPENAI_API_KEY` 被忽略。
+`/v1/chat/completions`、`/v1/responses`、`/v1/messages` 会按路径分发到对应的请求格式；流式响应原样转发，
+所以你现有的 OpenAI SDK 不用改就能解析。key 始终留在 Executor 上，应用里填的 `OPENAI_API_KEY` 会被忽略。
 
-**现在 · 进程内嵌：** 用 **Orchestrator SDK** 把客户端嵌进进程——Rust 用
-[`keyward-sdk`](../../crates/keyward-sdk)，Go 用 [`sdk/go`](../../sdk/go)。两者都是：绑一个监听、
-`serve_one` / `ServeOne` 配对一个 Executor，然后发 work intent、流式拿回原生事件。（Go SDK 与 Rust
-Executor 字节级兼容，CI 里跨语言验证过。）
+**想嵌进进程：** 用 **Orchestrator SDK** 把客户端直接嵌入你的程序——Rust 用
+[`keyward-sdk`](../../crates/keyward-sdk)，Go 用 [`sdk/go`](../../sdk/go)。两者用法一致：绑定一个监听端口，
+用 `serve_one` / `ServeOne` 配对一个 Executor，然后提交工作意图、流式拿回原生事件。（Go SDK 与 Rust
+Executor 在字节层面完全兼容，这一点在 CI 里做了跨语言验证。）
 
-**传输 · WebSocket 或 gRPC：** 协议与传输无关（spec §1）。Rust SDK 两种都能起——`serve_one`
-（WebSocket）或 `serve_one_grpc`（gRPC，`--features grpc` 构建）——Executor 按 URL scheme 选择
-（`ws://` / `wss://` 对 `grpc://` / `grpcs://`）。gRPC 下 Executor 仍是拨出方，照样不需要入站端口；
-通道之上的一切完全一致。
+**传输层，WebSocket 或 gRPC 都行：** 协议本身与传输无关（spec §1）。Rust SDK 两种都能起——`serve_one`
+走 WebSocket，`serve_one_grpc` 走 gRPC（用 `--features grpc` 构建）——而 Executor 按 URL scheme 自动选择
+（`ws://` / `wss://` 对应 WebSocket，`grpc://` / `grpcs://` 对应 gRPC）。即便走 gRPC，Executor 依然是
+主动拨出的一方，照样不需要开入站端口；通道之上的逻辑完全一样。
 
-**现在 · 更底层：** 直接对着 WebSocket 或 gRPC 双向流实现 `v0` 协议——完整契约在 [spec.md](../spec.md)，
-`keyward orchestrator` 是可读可跑的参考。
+**想做到更底层：** 也可以直接基于 WebSocket 或 gRPC 双向流自己实现 `v0` 协议——完整契约见 [spec.md](../spec.md)，
+而 `keyward orchestrator` 就是一份可读、可跑的参考实现。
 
 ## 消息流
 
-一次配对，之后在同一会话上发任意多个工作意图：
+配对一次，之后就能在同一个会话上发任意多个工作意图：
 
 ```
 Executor（用户侧）                             Orchestrator（你的应用）
    │ ── hello (pairing_token, providers) ───────▶ │  校验 token
-   │ ◀── paired (root_pubkey, op cert, sig) ───── │  证明身份、签 sid
+   │ ◀── paired (root_pubkey, op cert, sig) ───── │  证明身份、为 sid 签名
    │  钉住 root、验证证书链                          │
-   │ ◀── work (provider, native request) ──────── │  发一个 LLM 调用，不带 key
-   │  检查策略 ✓、注入 key、调用 Provider            │
-   │ ── work_chunk (seq, native delta) ─────────▶ │  转给你的用户
+   │ ◀── work (provider, native request) ──────── │  发起一次 LLM 调用，不带 key
+   │  校验策略 ✓、注入 key、调用 Provider            │
+   │ ── work_chunk (seq, native delta) ─────────▶ │  转发给你的用户
    │ ── work_done (usage) ──────────────────────▶ │
 ```
 
-- `work.request` 就是 Provider 的**原生** body、去掉凭证——OpenAI Chat Completions 用 `messages`，
-  Responses API 用 `input`，`anthropic` 用 Anthropic Messages 形状。Executor 原样转发、你拿回原生 chunk，
-  所以你现有的 Provider-SDK 解析照常工作。
-- 凭证只活在 Executor 里——你既不发送、也不接收任何凭证。
-- 通道掉线是**挂起**而非失败：重连后用 `resume { mid, last_seq }` 补回漏掉的 chunk；用 `cancel { mid }` 主动中止。
+- `work.request` 就是 Provider 的**原生**请求体，只是抹掉了凭证——OpenAI Chat Completions 用 `messages`，
+  Responses API 用 `input`，`anthropic` 则是 Anthropic Messages 的结构。Executor 原样转发，你拿回的也是
+  原生 chunk，所以你现有的 Provider SDK 解析逻辑照常工作。
+- 凭证只存在于 Executor 之中——你既不会发出凭证，也不会收到凭证。
+- 通道断开只是**挂起**，并不是失败：重连后用 `resume { mid, last_seq }` 把漏掉的 chunk 补回来，或用
+  `cancel { mid }` 主动中止。
 
 ## 配对体验
 
-生成一个**单次、短时效**的配对 token，用 WalletConnect 的方式展示给用户——一段可粘贴的码，或（路线图）
-一个可扫描的二维码。用一把长期的**根身份钥**证明自己；Executor 首次接触时把它钉住，因此跨重连的密钥轮换 /
-自动扩容都无需重新配对。把你根钥的指纹展示出来，让用户带外核对。
+生成一个**单次有效、短时效**的配对 token，像 WalletConnect 那样展示给用户——一串可粘贴的码，或者（路线图上的）
+一个可扫描的二维码。你这边用一把长期的**根身份钥**来证明自己的身份；Executor 首次接触时会把它钉住，因此之后
+跨重连的密钥轮换、自动扩容都无需重新配对。记得把你根钥的指纹展示出来，好让用户带外核对。
 
 ## 控制谁能绑定（保护你这一侧）
 
-你也可以**反向认证 Executor**，只允许你注册过的用户绑定。每个 Executor 有一把稳定的身份钥；用户跑
-`keyward identity` 拿到自己的 pubkey，在注册时登记给你。之后你只放行这个白名单：每个 `hello` 都带着
-Executor 的 `pubkey` 和对配对 token 的签名，没在白名单里的一律拒绝。
+你也可以**反过来认证 Executor**，只允许你注册过的用户绑定。每个 Executor 都有一把固定的身份钥；用户运行
+`keyward identity` 拿到自己的公钥，注册时登记给你。之后你只放行白名单内的：每个 `hello` 都带着 Executor 的
+`pubkey` 以及对配对 token 的签名，不在白名单里的一律拒绝。
 
-这保护的是**你的**利益（谁能用你的 app），不碰用户那一侧——它纯粹是个「谁能绑定」的门禁。它**不会**对用户
-隐藏 prompt 或 key：BYOK 下 Executor 是用户在跑，他们永远能检查自己的流量（这正是 Keyward 的意义），
-而且谁给 Provider 请求装上凭证、谁就必然看得见这个请求。如果你需要对**用户**隐藏 payload，那 BYOK 就是错的
-模型——那需要服务端 / TEE 执行。
+这道门禁保护的是**你**的利益（谁能用你的应用），并不触及用户那一侧——它纯粹是「谁能绑定」的关卡。它**不会**替你
+对用户隐藏提示词或 key：在 BYOK 模式下，Executor 是用户自己在跑，他们随时都能检查自己的流量（这本就是 Keyward
+的意义所在）；而且谁给 Provider 请求装上凭证，谁就必然看得见这个请求。如果你的需求是对**用户**隐藏 payload，
+那 BYOK 根本就是错的模型——那得靠服务端 / TEE 来执行。
 
 ## 用 Docker 部署
 
-仓库里带了 [`Dockerfile`](../../Dockerfile)——一个镜像、多种服务角色（构建时带上代理、两个 Provider 方言、
-gRPC）。默认命令是代理：
+仓库里自带了一个 [`Dockerfile`](../../Dockerfile)——同一个镜像，可以扮演多种服务角色（构建时已包含代理、
+两种 Provider 请求格式和 gRPC）。默认命令是代理：
 
 ```sh
 docker build -t keyward .
-# OpenAI 兼容网关：:8088 是给你 app 的 HTTP 前端，:8787 是 Owner 的 executor 拨入口。
-# 容器内两者都绑 0.0.0.0。
+# OpenAI 兼容网关：:8088 是给你应用用的 HTTP 前端，:8787 是 Owner 的 executor 拨入的端口。
+# 容器内这两个都绑在 0.0.0.0 上。
 docker run -p 8088:8088 -p 8787:8787 keyward
-#   你的 app 里：  OPENAI_BASE_URL=http://<host>:8088/v1   OPENAI_API_KEY=anything
+#   在你的应用里：  OPENAI_BASE_URL=http://<host>:8088/v1   OPENAI_API_KEY=anything
 ```
 
-换个命令就是别的角色——`docker run keyward orchestrator`，或在 Owner 机器上跑一个常驻 Executor、
-key 作为环境变量密文传入：
+换个命令就能切换角色——`docker run keyward orchestrator`，或者在 Owner 的机器上跑一个常驻 Executor，
+把 key 以环境变量机密的形式传进去：
 
 ```sh
 docker run -e KEYWARD_ORCH_URL=grpc://orch.example.com:443 \
            -e KEYWARD_PAIRING_TOKEN=pt_... -e OPENAI_API_KEY=sk-... keyward executor
 ```
 
-镜像以非 root 用户运行、不需要任何构建期密文。监听地址用 `KEYWARD_PROXY_LISTEN` / `KEYWARD_LISTEN` 调整。
+镜像以非 root 用户运行，也不需要任何构建期的机密。监听地址可以用 `KEYWARD_PROXY_LISTEN` / `KEYWARD_LISTEN`
+调整。
 
 ---
 
-本地试一下：[完整走一遍](./walkthrough.md) · 读协议格式：[spec.md](../spec.md) · 回到[文档索引](./README.md)。
+本地试一下：[完整跑一遍](./walkthrough.md) · 读协议格式：[spec.md](../spec.md) · 回到[文档索引](./README.md)。
