@@ -15,8 +15,11 @@ crates/
                    no HTTP, no crypto — compiles to every target unchanged.
   keyward/         the reference Executor + a mock Orchestrator for the demo.
     src/wire.rs            Frame ↔ WebSocket, hex/fingerprint/digest helpers
-    src/provider/mod.rs    provider adapters; the `mock` provider (no key, no net)
-    src/provider/openai.rs real OpenAI Chat-Completions adapter (feature = "openai")
+    src/provider/mod.rs       provider adapters; the `mock` provider (no key, no net),
+                              dialect chosen by model family
+    src/provider/openai.rs    real OpenAI Chat-Completions adapter (feature = "openai")
+    src/provider/anthropic.rs Anthropic Messages adapter + a tested usage accumulator
+                              (feature = "anthropic")
     src/pricing.rs         budget cost from usage (stand-in table; see §6 note)
     src/executor.rs        dial out, pin+verify orchestrator key, enforce policy, relay
     src/orchestrator.rs    mock app: issues pairing token, signs sid, drives intents
@@ -30,10 +33,11 @@ cargo run -- demo
 ```
 
 You'll see: the Executor dial out; the Orchestrator sign the freshly-assigned
-`sid`; the Executor **TOFU-pin** that identity key (fingerprints match); one
-`gpt-4o` intent stream back in sequenced chunks with metered usage/cost; and one
-`gpt-4-turbo` intent **rejected with `policy_model`** before the provider is
-contacted.
+`sid`; the Executor **TOFU-pin** that identity key (fingerprints match); a
+`gpt-4o` intent (OpenAI dialect) and a `claude-3-5-sonnet` intent (Anthropic
+dialect) each stream back in sequenced native chunks with usage metered the way
+that dialect reports it; and a `gpt-4-turbo` intent **rejected with
+`policy_model`** before the provider is contacted.
 
 ## Run the two ends separately
 
@@ -78,10 +82,13 @@ that's what reproducible builds + signed provenance are for. See the README's
 Enough is real to believe the shape: the dial-out WS transport, pairing with a
 one-time token, the Ed25519 orchestrator identity (signed `sid`, TOFU pin, and a
 refusal if the key changes on reconnect), the policy engine with the §6 ordering
-and trailing-`*` globs, native-body passthrough, the streamed relay with a
-per-intent `seq`, and usage metered into budget spend. The real OpenAI adapter is
-there too (forces `stream_options.include_usage`, attaches the key at one call
-site, honours `OPENAI_BASE_URL`) — the demo just doesn't use it.
+and trailing-`*` globs, native-body passthrough in two dialects (OpenAI Chat
+Completions and Anthropic Messages), the streamed relay with a per-intent `seq`,
+and usage metered into budget spend the way each dialect reports it. The real
+adapters are there too (OpenAI forces `stream_options.include_usage`; Anthropic
+reads the split/cumulative usage without double-counting cache tokens; each
+attaches the key at one call site and honours its `*_BASE_URL`) — the demo just
+uses mocks so it needs no key.
 
 The rest is stubbed, roughly in the order I'd reach for next:
 - **Channel E2E crypto (Noise).** The reference channel is plain WSS to the

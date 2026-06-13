@@ -28,6 +28,7 @@ reqwest = { workspace = true, optional = true }
 
 [features]
 default = []
-# Real OpenAI-compatible provider adapter (pulls in reqwest/rustls). The `demo`
-# and the mock provider work without it.
+# Real provider adapters (pull in reqwest/rustls). The `demo` and the mock
+# providers work without them.
 openai = ["dep:reqwest"]
+anthropic = ["dep:reqwest"]
