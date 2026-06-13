@@ -141,9 +141,9 @@ The rest is stubbed, roughly in the order I'd reach for next:
   Linux kernel keyutils; no D-Bus / secret-service dependency) — with an env
   fallback, wrapped in `SecretString` (redacted Debug, zeroized on drop), set via
   `keyward set-key`. The Linux kernel keyring is session-scoped (doesn't survive a
-  reboot), so headless hosts may prefer the env fallback. Still TODO:
-  `mlock`/`setrlimit` to keep the key out of swap/core dumps, and a real
-  hidden-TTY prompt (the key is read from stdin but currently echoes).
+  reboot), so headless hosts may prefer the env fallback. `set-key` reads the key
+  from a hidden-TTY prompt (no echo) when interactive, or stdin when piped. Still
+  TODO: `mlock`/`setrlimit` to keep the key out of swap / core dumps.
 - **Byte-reproducible builds.** CI (fmt/clippy/test) and a release workflow that
   publishes checksums + a signed SLSA build-provenance attestation are in
   `.github/workflows/`; the pinned-container build that makes the binary

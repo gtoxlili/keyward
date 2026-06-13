@@ -64,22 +64,25 @@ fn identity_cli() -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Store a provider key in the OS keychain. The secret is read from stdin (never
-/// argv, where it would be visible in `ps` / shell history): pipe or paste it.
+/// Store a provider key in the OS keychain. The secret is read from a hidden
+/// terminal prompt (no echo) when interactive, or from stdin when piped — never
+/// from argv, where it would be visible in `ps` / shell history.
 fn set_key_cli() -> anyhow::Result<()> {
-    use std::io::{BufRead, Write};
+    use std::io::{BufRead, IsTerminal};
     let provider = std::env::args().nth(2).ok_or_else(|| {
-        anyhow::anyhow!("usage: keyward set-key <provider>   (then provide the key on stdin)")
+        anyhow::anyhow!("usage: keyward set-key <provider>   (paste the key, or pipe it on stdin)")
     })?;
-    eprint!("paste the {provider} key on stdin, then Enter: ");
-    std::io::stderr().flush().ok();
-    let mut line = String::new();
-    std::io::stdin().lock().read_line(&mut line)?;
-    let secret = line.trim_end_matches(['\n', '\r']);
+    let secret = if std::io::stdin().is_terminal() {
+        rpassword::prompt_password(format!("paste the {provider} key (hidden): "))?
+    } else {
+        let mut line = String::new();
+        std::io::stdin().lock().read_line(&mut line)?;
+        line.trim_end_matches(['\n', '\r']).to_string()
+    };
     if secret.is_empty() {
         anyhow::bail!("empty key — nothing stored");
     }
-    secret::store_key(&provider, secret)?;
+    secret::store_key(&provider, &secret)?;
     println!("stored '{provider}' key in the OS keychain (service 'keyward')");
     Ok(())
 }

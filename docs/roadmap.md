@@ -38,7 +38,7 @@ verification** and the **Orchestrator SDK / proxy**.
 - [x] **Single-use pairing tokens** — a token binds to one Executor identity; the same identity may reconnect (resume), a different one is refused
 - [~] **Out-of-band fingerprint confirmation** — `KEYWARD_EXPECT_ROOT_FP` lets the Owner pre-state the expected root fingerprint and refuse a mismatch; a passkey / QR gesture is still future
 - [ ] **Signature-bound resume** — bind `resume` to a fresh identity signature, not just a re-pair
-- [ ] **Secret hardening** — `mlock`/`setrlimit` (keep the key out of swap/core dumps) + a real hidden-TTY prompt for `set-key`
+- [~] **Secret hardening** — `set-key` now reads from a hidden-TTY prompt (no echo) when interactive; `mlock`/`setrlimit` to keep the key out of swap/core dumps still TODO
 
 ### Make it usable (productization)
 - [x] **Local OpenAI-compatible proxy** — `keyward proxy` (feature `proxy`): an app points `OPENAI_BASE_URL` at it and the proxy relays each request to the paired Executor; streaming SSE is native passthrough, non-streaming is assembled. Verified live against a real backend.
