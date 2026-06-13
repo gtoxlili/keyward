@@ -28,6 +28,7 @@ crates/
     src/orchestrator.rs    mock app: issues pairing token, signs sid, drives intents
     src/demo.rs            wires both ends over a localhost WS; `demo` runs three intents,
                            `resume-demo` drops the channel mid-stream and resumes
+    src/e2e_tests.rs       integration tests: drive the real executor, assert on its frames
 ```
 
 ## Run the demo (no key, no network)

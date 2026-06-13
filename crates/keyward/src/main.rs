@@ -12,6 +12,9 @@ mod pricing;
 mod provider;
 mod wire;
 
+#[cfg(test)]
+mod e2e_tests;
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let cmd = std::env::args().nth(1).unwrap_or_else(|| "demo".into());
