@@ -166,7 +166,7 @@ on budget.
 ```json
 {
   "providers": ["openai", "anthropic"],
-  "models": ["gpt-4o", "claude-3-5-sonnet-*"],
+  "models": ["gpt-4o", "claude-sonnet-*"],
   "orchestrators": ["acme-agent"],
   "budget": { "limit_usd": 20, "window": "month", "spent_usd": 7.40 },
   "rate": { "rpm": 60, "tpm": 200000 },

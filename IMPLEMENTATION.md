@@ -38,12 +38,13 @@ crates/
 cargo run -- demo
 ```
 
-You'll see: the Executor dial out; the Orchestrator sign the freshly-assigned
-`sid`; the Executor **TOFU-pin** that identity key (fingerprints match); a
-`gpt-4o` intent (OpenAI dialect) and a `claude-3-5-sonnet` intent (Anthropic
-dialect) each stream back in sequenced native chunks with usage metered the way
-that dialect reports it; and a `gpt-4-turbo` intent **rejected with
-`policy_model`** before the provider is contacted.
+You'll see: the Executor dial out; the Orchestrator present a root-delegated
+operational key and sign the freshly-assigned `sid`; the Executor **TOFU-pin the
+root** and verify the op key chains to it (fingerprints match); a `gpt-4o` intent
+(OpenAI dialect) and a `claude-sonnet-4-5` intent (Anthropic dialect) each stream
+back in sequenced native chunks with usage metered the way that dialect reports
+it; and a `gpt-4-turbo` intent **rejected with `policy_model`** before the
+provider is contacted.
 
 ## Run the resume / cancel demo (§7)
 
@@ -54,8 +55,9 @@ cargo run -- resume-demo
 The Orchestrator streams an intent, reads a few chunks, then **drops the socket
 mid-stream**. The Executor's producer keeps pulling from the provider into a
 ring buffer while the channel is down; the Executor re-dials, re-pairs (the
-pinned key still matches — no second TOFU), and on `resume` **replays exactly the
-chunks the Orchestrator missed**, then finishes. A second intent is then
+pinned **root** still matches; the operational key may rotate — no second TOFU),
+and on `resume` **replays exactly the chunks the Orchestrator missed**, then
+finishes. A second intent is then
 **cancelled** part-way, showing the other half of §7: a dropped channel suspends,
 an explicit `cancel` aborts.
 
@@ -127,9 +129,12 @@ The rest is stubbed, roughly in the order I'd reach for next:
   the TOFU first-contact gap (SPEC §3).
 - **Executor identity.** The Orchestrator does not yet authenticate the *Executor*
   (the `hello.pubkey` field exists but isn't pinned).
-- **Secret hardening beyond the keychain.** Keys resolve from the OS keychain
-  (`keyring`) per provider with an env fallback, wrapped in `SecretString`
-  (redacted Debug, zeroized on drop), set via `keyward set-key`. Still TODO:
+- **Secret hardening beyond the keychain.** Keys resolve per provider from the OS
+  keychain — native backends only (macOS Keychain, Windows Credential Manager,
+  Linux kernel keyutils; no D-Bus / secret-service dependency) — with an env
+  fallback, wrapped in `SecretString` (redacted Debug, zeroized on drop), set via
+  `keyward set-key`. The Linux kernel keyring is session-scoped (doesn't survive a
+  reboot), so headless hosts may prefer the env fallback. Still TODO:
   `mlock`/`setrlimit` to keep the key out of swap/core dumps, and a real
   hidden-TTY prompt (the key is read from stdin but currently echoes).
 - **Byte-reproducible builds.** CI (fmt/clippy/test) and a release workflow that
