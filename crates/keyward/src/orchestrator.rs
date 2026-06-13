@@ -88,10 +88,7 @@ pub async fn serve(stream: TcpStream, cfg: OrchestratorConfig) -> Result<()> {
             match frame.body {
                 Body::WorkAccepted {} => println!("[orchestr]     accepted"),
                 Body::WorkChunk { seq, delta } => {
-                    let piece = delta
-                        .pointer("/choices/0/delta/content")
-                        .and_then(Value::as_str)
-                        .unwrap_or("");
+                    let piece = chunk_text(&delta);
                     assembled.push_str(piece);
                     println!("[orchestr]     chunk seq={seq}  {piece:?}");
                 }
@@ -143,4 +140,19 @@ pub async fn run_cli() -> Result<()> {
         intents: vec![(provider, json!({"model": model, "messages": [{"role": "user", "content": prompt}], "stream": true}))],
     };
     serve(stream, cfg).await
+}
+
+/// Extract the text delta from a native chunk in either dialect — the demo's
+/// stand-in for what a real provider SDK does on the Orchestrator side. Keyward
+/// itself never looks inside the chunk; it just relays the bytes.
+fn chunk_text(delta: &Value) -> &str {
+    if let Some(t) = delta.pointer("/choices/0/delta/content").and_then(Value::as_str) {
+        return t; // OpenAI Chat Completions
+    }
+    if delta.get("type").and_then(Value::as_str) == Some("content_block_delta") {
+        if let Some(t) = delta.pointer("/delta/text").and_then(Value::as_str) {
+            return t; // Anthropic Messages
+        }
+    }
+    ""
 }
