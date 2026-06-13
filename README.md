@@ -22,7 +22,8 @@ policy enforced before the provider is touched, native streaming relayed and met
 detail as provisional until `v1`; issues and pushback welcome.
 
 Want to **use** it (bring your own key) or **integrate** it (build on it as an app)? Start with the
-**[Usage & Integration Guide](./GUIDE.md)** (中英双语).
+**[docs](./docs/)** (中英双语) — a guide [for users](./docs/users.md) and one
+[for app builders](./docs/integration.md).
 
 ## Why bother
 
