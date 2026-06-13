@@ -1,0 +1,21 @@
+[package]
+name = "keyward-grpc"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "gRPC transport adapter for the Keyward protocol (Executor dials out; Orchestrator listens)."
+
+[dependencies]
+keyward-proto.workspace = true
+anyhow.workspace = true
+tokio = { workspace = true }
+futures-util.workspace = true
+serde_json.workspace = true
+tonic = "0.12"
+prost = "0.13"
+tokio-stream = "0.1"
+
+[build-dependencies]
+tonic-build = "0.12"

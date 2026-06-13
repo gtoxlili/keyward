@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+package keyward.v0;
+
+// One Keyward protocol frame. The body is the canonical UTF-8 JSON envelope defined
+// in spec.md — over gRPC we keep that envelope and treat gRPC purely as the transport
+// (one reliable, ordered, bidirectional, message-oriented channel, §1), rather than
+// re-specifying every message as protobuf. A fully-typed protobuf profile may come
+// later; this keeps one wire format across the WebSocket and gRPC adapters.
+message Frame {
+  string json = 1;
+}
+
+service Keyward {
+  // The Executor (the gRPC client) dials this and opens ONE bidirectional stream
+  // that carries the whole session: hello/paired, work, work_chunk/done/error,
+  // resume/cancel, close. The Orchestrator is the gRPC server — so the Executor
+  // still dials OUT and needs no inbound ports. (Named `Open`, not `Connect`, to
+  // avoid colliding with tonic's generated client constructor.)
+  rpc Open(stream Frame) returns (stream Frame);
+}

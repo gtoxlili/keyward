@@ -15,17 +15,16 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Result};
 use ed25519_dalek::{SigningKey, VerifyingKey};
-use futures_util::StreamExt;
 use keyward_proto::{Body, Frame, Live, Peer, Policy, Usage};
 use serde_json::Value;
 use tokio::sync::{mpsc, Mutex, Notify};
 use tokio::time::{sleep, Duration};
-use tokio_tungstenite::connect_async;
 
 use crate::identity;
 use crate::pricing;
 use crate::provider::{self, Event};
 use crate::secret::KeySource;
+use crate::transport;
 use crate::wire;
 
 /// Recent chunks retained per intent for replay-on-resume (§7).
@@ -154,19 +153,7 @@ async fn serve_once(
     cfg: &Arc<ExecutorConfig>,
     shared: &Arc<Shared>,
 ) -> Result<Flow> {
-    let (ws, _resp) = connect_async(url)
-        .await
-        .map_err(|e| anyhow!("dial-out to {url} failed: {e}"))?;
-    let (mut write, mut read) = ws.split();
-
-    let (out, mut out_rx) = mpsc::channel::<Frame>(64);
-    let writer = tokio::spawn(async move {
-        while let Some(frame) = out_rx.recv().await {
-            if wire::send(&mut write, &frame).await.is_err() {
-                break;
-            }
-        }
-    });
+    let (out, mut inbound) = transport::connect(url).await?;
 
     out.send(hello_frame(cfg, pairing_token)).await.ok();
 
@@ -175,8 +162,8 @@ async fn serve_once(
     let mut authenticated = false;
 
     let flow = loop {
-        match wire::recv(&mut read).await {
-            Ok(Some(frame)) => match frame.body {
+        match inbound.recv().await {
+            Some(frame) => match frame.body {
                 Body::Paired {
                     orchestrator,
                     root_pubkey,
@@ -245,15 +232,10 @@ async fn serve_once(
                 }
                 _ => {}
             },
-            Ok(None) => break Flow::Reconnect, // channel dropped without a Keyward close
-            Err(e) => {
-                eprintln!("[executor] recv error: {e}");
-                break Flow::Reconnect;
-            }
+            None => break Flow::Reconnect, // channel dropped → suspend & reconnect (§7)
         }
     };
 
-    writer.abort();
     Ok(flow)
 }
 

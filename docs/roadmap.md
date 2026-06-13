@@ -22,14 +22,13 @@ verification** and the **Orchestrator SDK / proxy**.
 - Session resumption + cancel (§7) — per-intent producer + bounded ring buffer; survives a dropped channel
 - Usage metering — vendored LiteLLM prices (`data/model_prices.json` + `scripts/refresh-prices.sh`); real `sha256` policy digest
 - Secret storage — OS keychain (native backends, no D-Bus), per provider, env fallback; `SecretString` (redacted, zeroized)
-- Transport — outbound WebSocket reference adapter
+- Transport — outbound WebSocket **and gRPC** reference adapters (scheme-selected `ws://`/`grpc://`, same JSON envelope; gRPC keeps the Executor as the dialing client, cross-verified end to end)
 - Engineering — CI (fmt/clippy/test), release workflow with SLSA provenance, dependabot, ~32 tests, bilingual docs
 
 ## 🟡 Partial
 
 - **Reference Executor** — runs end to end; missing serverless templates and the bit-for-bit reproducible build
 - **Provider coverage** — 3 dialects done; Gemini and others, plus tool-use / images / multimodal, not yet
-- **Transport** — WebSocket done; gRPC bidi adapter pending
 
 ## ⬜ Not built yet — the gap to "done"
 
@@ -42,7 +41,7 @@ verification** and the **Orchestrator SDK / proxy**.
 
 ### Make it usable (productization)
 - [x] **Local OpenAI-compatible proxy** — `keyward proxy` (feature `proxy`): an app points `OPENAI_BASE_URL` at it and the proxy relays each request to the paired Executor; streaming SSE is native passthrough, non-streaming is assembled. Verified live against a real backend.
-- [x] **Orchestrator SDK** — Rust (`keyward-sdk`) and Go (`sdk/go`) clients, both cross-verified against the real executor (the Go orchestrator's Ed25519 chain verifies on the Rust executor — proof the protocol is language-agnostic). (The proxy covers zero-code-change integration; these are for embedding in-process.)
+- [x] **Orchestrator SDK** — Rust (`keyward-sdk`) and Go (`sdk/go`) clients, both cross-verified against the real executor (the Go orchestrator's Ed25519 chain verifies on the Rust executor — proof the protocol is language-agnostic). The Rust SDK serves either transport (`serve_one` over WebSocket, `serve_one_grpc` over gRPC). (The proxy covers zero-code-change integration; these are for embedding in-process.)
 - [ ] **Serverless Executor templates** — Cloudflare Worker / AWS Lambda / Deno Deploy, key as a secret in the user's own account
 - [ ] **Browser / WASM Executor** — the ephemeral, in-tab interactive case
 - [ ] **Prebuilt binaries / installer** — so users don't have to `cargo build`

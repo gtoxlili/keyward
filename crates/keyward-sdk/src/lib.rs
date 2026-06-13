@@ -102,18 +102,11 @@ pub struct Session {
     pending: Arc<Mutex<HashMap<String, mpsc::Sender<Event>>>>,
 }
 
-/// Accept ONE Executor dialing into `listener`, authenticate + pair it, and return a
-/// `Session`. (v0: one Executor per session.)
+/// Accept ONE Executor dialing into `listener` over **WebSocket**, authenticate + pair
+/// it, and return a `Session`. (v0: one Executor per session.)
 pub async fn serve_one(listener: &TcpListener, cfg: &Config) -> Result<Session> {
     let (stream, _) = listener.accept().await?;
     let (mut write, mut read) = accept_async(stream).await?.split();
-
-    let hello = wire::recv(&mut read)
-        .await?
-        .ok_or_else(|| anyhow!("closed before hello"))?;
-    authenticate_executor(&hello.body, cfg)?;
-    let (sid, paired) = build_paired(cfg);
-    wire::send(&mut write, &paired).await?;
 
     let (out, mut out_rx) = mpsc::channel::<Frame>(64);
     tokio::spawn(async move {
@@ -123,12 +116,62 @@ pub async fn serve_one(listener: &TcpListener, cfg: &Config) -> Result<Session> 
             }
         }
     });
+    let (in_tx, in_rx) = mpsc::channel::<Frame>(64);
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                biased;
+                // Consumer dropped the receiver (e.g. auth rejected): stop and drop
+                // `read` so the socket closes and the Executor sees the rejection.
+                _ = in_tx.closed() => break,
+                msg = wire::recv(&mut read) => match msg {
+                    Ok(Some(frame)) => {
+                        if in_tx.send(frame).await.is_err() {
+                            break;
+                        }
+                    }
+                    _ => break,
+                },
+            }
+        }
+    });
+
+    pair_and_run(out, in_rx, cfg).await
+}
+
+/// Accept ONE Executor over **gRPC** at `addr`, authenticate + pair it, and return a
+/// `Session`. Same protocol and `Session` API — only the transport differs (spec §1).
+/// Requires the `grpc` feature.
+#[cfg(feature = "grpc")]
+pub async fn serve_one_grpc(addr: std::net::SocketAddr, cfg: &Config) -> Result<Session> {
+    let (out, inbound) = keyward_grpc::accept_one(addr).await?;
+    pair_and_run(out, inbound, cfg).await
+}
+
+/// Shared pairing + session loop over an already-established `(out, inbound)` frame
+/// channel pair — transport-agnostic. Receives `hello`, authenticates the Executor,
+/// signs and sends `paired`, then demultiplexes inbound work frames to per-intent
+/// receivers until the channel closes.
+async fn pair_and_run(
+    out: mpsc::Sender<Frame>,
+    mut inbound: mpsc::Receiver<Frame>,
+    cfg: &Config,
+) -> Result<Session> {
+    let hello = inbound
+        .recv()
+        .await
+        .ok_or_else(|| anyhow!("closed before hello"))?;
+    authenticate_executor(&hello.body, cfg)?;
+    let (sid, paired) = build_paired(cfg);
+    out.send(paired)
+        .await
+        .map_err(|_| anyhow!("failed to send paired (executor went away)"))?;
 
     let pending: Arc<Mutex<HashMap<String, mpsc::Sender<Event>>>> = Arc::new(Mutex::new(HashMap::new()));
     {
         let pending = pending.clone();
         tokio::spawn(async move {
-            while let Ok(Some(frame)) = wire::recv(&mut read).await {
+            while let Some(frame) = inbound.recv().await {
                 route(&pending, frame).await;
             }
             for (_, tx) in pending.lock().await.drain() {
