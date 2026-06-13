@@ -17,6 +17,7 @@ use tokio::sync::Mutex;
 
 use crate::executor::{self, ExecutorConfig};
 use crate::orchestrator::{self, OrchestratorConfig};
+use crate::secret::KeySource;
 
 pub async fn run() -> Result<()> {
     let listener = TcpListener::bind("127.0.0.1:0").await?;
@@ -82,7 +83,9 @@ pub async fn run() -> Result<()> {
         name: "keyward-exec".into(),
         providers: vec!["mock".into()],
         policy,
-        provider_key: SecretString::from("sk-DEMO-this-string-never-leaves-the-executor".to_string()),
+        keys: KeySource::Fixed(SecretString::from(
+            "sk-DEMO-this-string-never-leaves-the-executor".to_string(),
+        )),
         pinned: Arc::new(Mutex::new(None)),
     };
 
@@ -137,7 +140,9 @@ pub async fn run_resume() -> Result<()> {
         name: "keyward-exec".into(),
         providers: vec!["mock".into()],
         policy,
-        provider_key: SecretString::from("sk-DEMO-this-string-never-leaves-the-executor".to_string()),
+        keys: KeySource::Fixed(SecretString::from(
+            "sk-DEMO-this-string-never-leaves-the-executor".to_string(),
+        )),
         pinned: Arc::new(Mutex::new(None)),
     };
 

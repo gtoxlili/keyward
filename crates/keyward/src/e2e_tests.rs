@@ -18,6 +18,7 @@ use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{accept_async, WebSocketStream};
 
 use crate::executor::{self, ExecutorConfig};
+use crate::secret::KeySource;
 use crate::{identity, wire};
 
 type WsW = SplitSink<WebSocketStream<TcpStream>, Message>;
@@ -34,7 +35,7 @@ async fn harness(policy: Policy) -> (WsW, WsR, tokio::task::JoinHandle<anyhow::R
         name: "test-exec".into(),
         providers: vec!["mock".into()],
         policy,
-        provider_key: SecretString::from("sk-TEST-never-leaves".to_string()),
+        keys: KeySource::Fixed(SecretString::from("sk-TEST-never-leaves".to_string())),
         pinned: Arc::new(Mutex::new(None)),
     };
     let exec = tokio::spawn(async move { executor::run(&url, "pt_test", cfg).await });

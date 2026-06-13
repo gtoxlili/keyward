@@ -10,6 +10,7 @@ mod identity;
 mod orchestrator;
 mod pricing;
 mod provider;
+mod secret;
 mod wire;
 
 #[cfg(test)]
@@ -23,6 +24,8 @@ async fn main() -> anyhow::Result<()> {
         "resume-demo" => demo::run_resume().await,
         "executor" => executor::run_cli().await,
         "orchestrator" => orchestrator::run_cli().await,
+        "set-key" => set_key_cli(),
+        "delete-key" => delete_key_cli(),
         "-h" | "--help" | "help" => {
             print_usage();
             Ok(())
@@ -35,14 +38,45 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
+/// Store a provider key in the OS keychain. The secret is read from stdin (never
+/// argv, where it would be visible in `ps` / shell history): pipe or paste it.
+fn set_key_cli() -> anyhow::Result<()> {
+    use std::io::{BufRead, Write};
+    let provider = std::env::args().nth(2).ok_or_else(|| {
+        anyhow::anyhow!("usage: keyward set-key <provider>   (then provide the key on stdin)")
+    })?;
+    eprint!("paste the {provider} key on stdin, then Enter: ");
+    std::io::stderr().flush().ok();
+    let mut line = String::new();
+    std::io::stdin().lock().read_line(&mut line)?;
+    let secret = line.trim_end_matches(['\n', '\r']);
+    if secret.is_empty() {
+        anyhow::bail!("empty key — nothing stored");
+    }
+    secret::store_key(&provider, secret)?;
+    println!("stored '{provider}' key in the OS keychain (service 'keyward')");
+    Ok(())
+}
+
+fn delete_key_cli() -> anyhow::Result<()> {
+    let provider = std::env::args()
+        .nth(2)
+        .ok_or_else(|| anyhow::anyhow!("usage: keyward delete-key <provider>"))?;
+    secret::delete_key(&provider)?;
+    println!("deleted '{provider}' key from the OS keychain");
+    Ok(())
+}
+
 fn print_usage() {
     eprintln!(
         "keyward — non-custodial BYOK executor (v0 skeleton)\n\n\
          USAGE:\n  \
            keyward demo          self-contained end-to-end demo (no key, no network)\n  \
            keyward resume-demo   drop-the-channel resume + cancel demo (§7)\n  \
-           keyward executor      dial out to an Orchestrator\n                        \
-             env: KEYWARD_ORCH_URL, KEYWARD_PAIRING_TOKEN, KEYWARD_PROVIDER_KEY|OPENAI_API_KEY\n  \
+           keyward executor      dial out to an Orchestrator (keys from OS keychain, then env)\n                        \
+             env: KEYWARD_ORCH_URL, KEYWARD_PAIRING_TOKEN\n  \
+           keyward set-key <p>   store provider <p>'s key in the OS keychain (key via stdin)\n  \
+           keyward delete-key <p> remove provider <p>'s key from the OS keychain\n  \
            keyward orchestrator  serve a single-prompt mock Orchestrator\n                        \
              env: KEYWARD_LISTEN, KEYWARD_PAIRING_TOKEN, KEYWARD_PROVIDER, KEYWARD_MODEL, KEYWARD_PROMPT"
     );
