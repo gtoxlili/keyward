@@ -8,11 +8,11 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use ed25519_dalek::{Signer, SigningKey};
 use futures_util::{Sink, Stream, StreamExt};
 use keyward_proto::{Body, Frame, Peer};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::accept_async;
 use tokio_tungstenite::tungstenite::Message;

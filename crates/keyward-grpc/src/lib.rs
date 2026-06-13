@@ -13,7 +13,7 @@
 //! Each gRPC message wraps one canonical Keyward JSON frame (`Frame { json }`) — gRPC
 //! is the pipe, the JSON envelope from spec.md is unchanged.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use futures_util::StreamExt;
 use keyward_proto::Frame;
 use std::net::SocketAddr;
@@ -26,9 +26,9 @@ use tonic::{Request, Response, Status};
 pub mod pb {
     tonic::include_proto!("keyward.v0");
 }
+use pb::Frame as PbFrame;
 use pb::keyward_client::KeywardClient;
 use pb::keyward_server::{Keyward, KeywardServer};
-use pb::Frame as PbFrame;
 
 const CHAN: usize = 64;
 
@@ -53,10 +53,10 @@ async fn pump_in(mut stream: tonic::Streaming<PbFrame>, in_tx: mpsc::Sender<Fram
             _ = in_tx.closed() => break,
             item = stream.next() => match item {
                 Some(Ok(pf)) => {
-                    if let Some(f) = from_pb(&pf) {
-                        if in_tx.send(f).await.is_err() {
-                            break;
-                        }
+                    if let Some(f) = from_pb(&pf)
+                        && in_tx.send(f).await.is_err()
+                    {
+                        break;
                     }
                 }
                 _ => break, // stream ended or errored

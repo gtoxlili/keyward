@@ -7,7 +7,7 @@
 use anyhow::Result;
 use keyward_proto::Usage;
 use secrecy::SecretString;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 pub mod anthropic;

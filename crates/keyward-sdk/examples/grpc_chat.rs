@@ -9,7 +9,7 @@
 //! Set PROVIDER=openai (and build the executor with --features grpc,openai + a key)
 //! for a real call.
 
-use keyward_sdk::{serve_one_grpc, Config, Event};
+use keyward_sdk::{Config, Event, serve_one_grpc};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -19,7 +19,9 @@ async fn main() -> anyhow::Result<()> {
         "orchestrator (gRPC) on grpc://127.0.0.1:8810  (root fingerprint {})",
         cfg.root_fingerprint()
     );
-    println!("dial an executor:  KEYWARD_ORCH_URL=grpc://127.0.0.1:8810 KEYWARD_PAIRING_TOKEN=pt_grpc keyward executor  (built --features grpc)");
+    println!(
+        "dial an executor:  KEYWARD_ORCH_URL=grpc://127.0.0.1:8810 KEYWARD_PAIRING_TOKEN=pt_grpc keyward executor  (built --features grpc)"
+    );
 
     let session = serve_one_grpc(addr, &cfg).await?;
     println!("executor paired over gRPC — sending a work intent…");

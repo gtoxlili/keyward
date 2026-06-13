@@ -30,10 +30,10 @@ fn price_per_token(model: &str) -> (f64, f64) {
     if let Some(&hit) = PRICES.get(model) {
         return hit;
     }
-    if let Some(b) = bare {
-        if let Some(&hit) = PRICES.get(b) {
-            return hit;
-        }
+    if let Some(b) = bare
+        && let Some(&hit) = PRICES.get(b)
+    {
+        return hit;
     }
     if let Some(p) = prefix_match(model) {
         return p;

@@ -6,8 +6,8 @@
 use std::sync::Arc;
 
 use ed25519_dalek::{Signer, SigningKey};
-use futures_util::stream::{SplitSink, SplitStream};
 use futures_util::StreamExt;
+use futures_util::stream::{SplitSink, SplitStream};
 use keyward_proto::{Body, Frame, Peer, Policy};
 use rand_core::OsRng;
 use secrecy::SecretString;
@@ -15,7 +15,7 @@ use serde_json::json;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::Message;
-use tokio_tungstenite::{accept_async, WebSocketStream};
+use tokio_tungstenite::{WebSocketStream, accept_async};
 
 use crate::executor::{self, ExecutorConfig};
 use crate::secret::KeySource;
@@ -271,7 +271,9 @@ async fn live_openai_chat_streams_and_meters() {
         );
         return;
     };
-    std::env::set_var("OPENAI_BASE_URL", base);
+    // SAFETY: single-threaded test setup before any provider call spins up; no other
+    // thread reads the environment concurrently. (set_var is unsafe as of edition 2024.)
+    unsafe { std::env::set_var("OPENAI_BASE_URL", base) };
     let model = std::env::var("KEYWARD_LIVE_MODEL").unwrap_or_else(|_| "gpt-4o-mini".into());
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();

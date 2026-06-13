@@ -6,7 +6,7 @@
 //! Debug, zeroized on drop) and is never read from argv. Keys are resolved per
 //! provider, so one Executor can front several providers (one credential each).
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use secrecy::{ExposeSecret, SecretString};
 
 const SERVICE: &str = "keyward";
@@ -81,10 +81,10 @@ const IDENTITY: &str = "__identity__";
 /// Load the persisted Executor identity seed: `KEYWARD_IDENTITY_SEED` first (for
 /// headless hosts that pin a fixed identity), then the OS keychain.
 pub fn load_identity_seed() -> Option<String> {
-    if let Ok(s) = std::env::var("KEYWARD_IDENTITY_SEED") {
-        if !s.is_empty() {
-            return Some(s);
-        }
+    if let Ok(s) = std::env::var("KEYWARD_IDENTITY_SEED")
+        && !s.is_empty()
+    {
+        return Some(s);
     }
     keyring::Entry::new(SERVICE, IDENTITY).ok()?.get_password().ok()
 }

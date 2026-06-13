@@ -3,7 +3,7 @@
 //! channels, so `serve_once` is transport-agnostic. The URL scheme picks the adapter:
 //! `ws://` / `wss://` → WebSocket; `grpc://` / `grpcs://` → gRPC (feature `grpc`).
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use futures_util::StreamExt;
 use keyward_proto::Frame;
 use tokio::sync::mpsc;

@@ -11,7 +11,7 @@ use anyhow::Result;
 use futures_util::StreamExt;
 use keyward_proto::Usage;
 use secrecy::{ExposeSecret, SecretString};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::mpsc;
 
 use super::Event;

@@ -1,7 +1,7 @@
 //! Transport plumbing for the WebSocket reference adapter: Frame ↔ tungstenite
 //! Message, plus small hex / fingerprint / digest helpers.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use keyward_proto::Frame;
 use sha2::{Digest, Sha256};

@@ -7,7 +7,7 @@
 //! rotate keys / autoscale across reconnects without the Owner re-pairing, while a
 //! stolen pairing token alone still can't bind (it can't forge a root signature).
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use keyward_proto::OpCert;
 
@@ -81,12 +81,11 @@ pub fn parse_pubkey(hex_str: &str) -> Result<VerifyingKey> {
 /// Load the Executor's persistent identity (keychain / env), or generate one and
 /// persist it. The public half is what an Orchestrator allow-lists.
 pub fn load_or_create_identity() -> SigningKey {
-    if let Some(seed) = crate::secret::load_identity_seed() {
-        if let Some(bytes) = unhex(&seed) {
-            if let Ok(arr) = <[u8; 32]>::try_from(bytes.as_slice()) {
-                return SigningKey::from_bytes(&arr);
-            }
-        }
+    if let Some(seed) = crate::secret::load_identity_seed()
+        && let Some(bytes) = unhex(&seed)
+        && let Ok(arr) = <[u8; 32]>::try_from(bytes.as_slice())
+    {
+        return SigningKey::from_bytes(&arr);
     }
     let key = SigningKey::generate(&mut rand_core::OsRng);
     let _ = crate::secret::store_identity_seed(&crate::wire::hex(&key.to_bytes()));

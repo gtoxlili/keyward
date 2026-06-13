@@ -1,6 +1,6 @@
 //! WebSocket framing + small hex/fingerprint helpers (self-contained).
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use keyward_proto::Frame;
 use tokio_tungstenite::tungstenite::Message;

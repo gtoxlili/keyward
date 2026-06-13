@@ -8,7 +8,7 @@
 //! Set PROVIDER=openai (and build the executor with --features openai + a key) for
 //! a real call.
 
-use keyward_sdk::{serve_one, Config, Event};
+use keyward_sdk::{Config, Event, serve_one};
 use tokio::net::TcpListener;
 
 #[tokio::main]
@@ -19,7 +19,9 @@ async fn main() -> anyhow::Result<()> {
         "orchestrator on ws://127.0.0.1:8799  (root fingerprint {})",
         cfg.root_fingerprint()
     );
-    println!("dial an executor:  KEYWARD_ORCH_URL=ws://127.0.0.1:8799 KEYWARD_PAIRING_TOKEN=pt_sdk keyward executor");
+    println!(
+        "dial an executor:  KEYWARD_ORCH_URL=ws://127.0.0.1:8799 KEYWARD_PAIRING_TOKEN=pt_sdk keyward executor"
+    );
 
     let session = serve_one(&listener, &cfg).await?;
     println!("executor paired — sending a work intent…");

@@ -10,15 +10,15 @@
 //! dropped channel does not.
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use ed25519_dalek::{SigningKey, VerifyingKey};
 use keyward_proto::{Body, Frame, Live, Peer, Policy, Usage};
 use serde_json::Value;
-use tokio::sync::{mpsc, Mutex, Notify};
-use tokio::time::{sleep, Duration};
+use tokio::sync::{Mutex, Notify, mpsc};
+use tokio::time::{Duration, sleep};
 
 use crate::identity;
 use crate::pricing;
@@ -139,7 +139,9 @@ pub async fn run(url: &str, pairing_token: &str, cfg: ExecutorConfig) -> Result<
                         "giving up reconnecting with {pending} intent(s) in flight"
                     ));
                 }
-                println!("[executor] channel lost; {pending} intent(s) in flight, reconnecting (attempt {attempt})…");
+                println!(
+                    "[executor] channel lost; {pending} intent(s) in flight, reconnecting (attempt {attempt})…"
+                );
                 sleep(Duration::from_millis(backoff)).await;
                 backoff = (backoff * 2).min(2000);
             }
@@ -223,7 +225,9 @@ async fn serve_once(
                     if let Some(intent) = shared.store.lock().await.get(&intent_mid) {
                         intent.cancelled.store(true, Ordering::SeqCst);
                         intent.cancel.notify_one();
-                        println!("[executor] CANCEL {intent_mid} (aborting our read; note: provider may keep billing)");
+                        println!(
+                            "[executor] CANCEL {intent_mid} (aborting our read; note: provider may keep billing)"
+                        );
                     }
                 }
                 Body::Close { reason } => {
@@ -532,12 +536,13 @@ async fn verify_chain_and_pin(
 
     // Out-of-band confirmation (closes the TOFU first-contact gap, §3): if the
     // Owner pre-states the expected root fingerprint, refuse anything else.
-    if let Ok(expected) = std::env::var("KEYWARD_EXPECT_ROOT_FP") {
-        if !expected.is_empty() && !expected.eq_ignore_ascii_case(&root_fp) {
-            return Err(anyhow!(
-                "orchestrator root fingerprint {root_fp} != expected {expected} — refusing to bind"
-            ));
-        }
+    if let Ok(expected) = std::env::var("KEYWARD_EXPECT_ROOT_FP")
+        && !expected.is_empty()
+        && !expected.eq_ignore_ascii_case(&root_fp)
+    {
+        return Err(anyhow!(
+            "orchestrator root fingerprint {root_fp} != expected {expected} — refusing to bind"
+        ));
     }
 
     // Pin the root on first contact; refuse a changed root thereafter.

@@ -229,32 +229,32 @@ impl Policy {
     /// provider → model → orchestrator → expiry → rate → budget.
     /// Returns the first failing dimension, or `Ok(())`.
     pub fn check(&self, provider: &str, model: &str, orchestrator: &str, live: Live) -> Result<(), Denied> {
-        if let Some(ps) = &self.providers {
-            if !ps.iter().any(|p| p == provider) {
-                return Err(Denied::Provider);
-            }
+        if let Some(ps) = &self.providers
+            && !ps.iter().any(|p| p == provider)
+        {
+            return Err(Denied::Provider);
         }
-        if let Some(ms) = &self.models {
-            if !ms.iter().any(|m| glob_match(m, model)) {
-                return Err(Denied::Model);
-            }
+        if let Some(ms) = &self.models
+            && !ms.iter().any(|m| glob_match(m, model))
+        {
+            return Err(Denied::Model);
         }
-        if let Some(os) = &self.orchestrators {
-            if !os.iter().any(|o| o == orchestrator) {
-                return Err(Denied::Orchestrator);
-            }
+        if let Some(os) = &self.orchestrators
+            && !os.iter().any(|o| o == orchestrator)
+        {
+            return Err(Denied::Orchestrator);
         }
-        if let Some(exp) = &self.expires_at {
-            if !live.now_rfc3339.is_empty() && live.now_rfc3339 >= exp.as_str() {
-                return Err(Denied::Expired);
-            }
+        if let Some(exp) = &self.expires_at
+            && !live.now_rfc3339.is_empty()
+            && live.now_rfc3339 >= exp.as_str()
+        {
+            return Err(Denied::Expired);
         }
-        if let Some(rate) = &self.rate {
-            if let Some(rpm) = rate.rpm {
-                if live.rpm_used >= rpm {
-                    return Err(Denied::Rate);
-                }
-            }
+        if let Some(rate) = &self.rate
+            && let Some(rpm) = rate.rpm
+            && live.rpm_used >= rpm
+        {
+            return Err(Denied::Rate);
         }
         if let Some(b) = &self.budget {
             // Spend is tracked live by the Executor; the policy only carries the cap.

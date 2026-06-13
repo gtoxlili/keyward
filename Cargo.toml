@@ -8,7 +8,7 @@ default-members = ["crates/keyward-proto", "crates/keyward", "crates/keyward-sdk
 
 [workspace.package]
 version = "0.0.0"
-edition = "2021"
+edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/gtoxlili/keyward"
 rust-version = "1.95"
@@ -24,6 +24,9 @@ futures-util = { version = "0.3", default-features = false, features = ["sink", 
 ed25519-dalek = { version = "2", features = ["rand_core"] }
 rand_core = { version = "0.6", features = ["getrandom"] }
 uuid = { version = "1", features = ["v4"] }
+# Pinned to 0.12: 0.13 dropped the pure-Rust `rustls-tls` (ring + webpki-roots) feature.
+# Its `rustls` now forces aws-lc-rs (a cmake/C build dep) + rustls-platform-verifier —
+# system deps keyward deliberately avoids. Revisit if 0.13 regains a clean ring path.
 reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
 secrecy = "0.10"
 sha2 = "0.11"

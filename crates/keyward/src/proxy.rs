@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::sse::{Event, Sse};
@@ -26,13 +26,13 @@ use ed25519_dalek::SigningKey;
 use futures_util::StreamExt;
 use keyward_proto::{Body, Frame, Usage};
 use rand_core::OsRng;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::net::TcpListener;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio_tungstenite::accept_async;
 
 use crate::executor::new_mid;
-use crate::orchestrator::{authenticate_executor, build_paired, chunk_text, OrchestratorConfig};
+use crate::orchestrator::{OrchestratorConfig, authenticate_executor, build_paired, chunk_text};
 use crate::wire;
 
 enum ProxyEvent {

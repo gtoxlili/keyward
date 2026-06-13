@@ -1,13 +1,13 @@
 //! Orchestrator-side crypto: the root → operational-key chain and Executor
 //! authentication. The byte formats here MUST match the Executor's verifier.
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{Result, anyhow, bail};
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
 use keyward_proto::{Body, Frame, OpCert, Peer};
 use rand_core::OsRng;
 
-use crate::wire::{hex, unhex};
 use crate::Config;
+use crate::wire::{hex, unhex};
 
 pub fn new_mid() -> String {
     uuid::Uuid::new_v4().to_string()

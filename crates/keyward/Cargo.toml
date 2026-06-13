@@ -34,6 +34,11 @@ keyward-grpc = { path = "../keyward-grpc", optional = true }
 # Windows Credential Manager, and on Linux the kernel keyutils (pure Rust, works
 # headless; deliberately NOT the desktop secret-service, which needs libdbus and
 # a session bus the typical keyward host doesn't have).
+#
+# Pinned to 3.x on purpose: keyring 4 reworked into keyring-core + pluggable store
+# crates and drops these native-only features — its Linux path pulls in
+# dbus-secret-service, exactly the libdbus dependency we removed to keep CI / headless
+# hosts clean. Revisit if a 4.x keyutils store lands without D-Bus.
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
 

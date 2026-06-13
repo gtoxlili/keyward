@@ -41,12 +41,12 @@ pub use keyward_proto::Usage;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use futures_util::StreamExt;
 use keyward_proto::{Body, Frame};
 use serde_json::Value;
 use tokio::net::TcpListener;
-use tokio::sync::{mpsc, Mutex};
+use tokio::sync::{Mutex, mpsc};
 use tokio_tungstenite::accept_async;
 
 use identity::{authenticate_executor, build_paired, new_mid};
