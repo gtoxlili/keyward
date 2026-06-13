@@ -241,7 +241,7 @@ fn hello_frame(cfg: &ExecutorConfig, pairing_token: &str) -> Frame {
                 id: None,
             },
             providers: cfg.providers.clone(),
-            policy_digest: wire::policy_digest_placeholder(&policy_canon),
+            policy_digest: wire::policy_digest(&policy_canon),
             pubkey: None,
         },
     )
