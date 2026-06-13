@@ -25,3 +25,17 @@ jobs:
         run: cargo test --workspace --all-features
       - name: build (default features)
         run: cargo build --workspace
+
+  go-sdk:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: sdk/go
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.23"
+      - run: go build ./...
+      - run: go vet ./...
+      - run: gofmt -l . | tee /dev/stderr | (! read)

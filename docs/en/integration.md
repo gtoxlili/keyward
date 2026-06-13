@@ -21,12 +21,15 @@ keyward proxy   # waits for an executor to pair, then serves http://127.0.0.1:80
 matching dialect; streaming is relayed verbatim, so your existing OpenAI SDK parses
 it natively. The key stays on the Executor; the app's `OPENAI_API_KEY` is ignored.
 
+**Today, embedded:** use the **Orchestrator SDK** to run the client in-process —
+[`keyward-sdk`](../../crates/keyward-sdk) for Rust, [`sdk/go`](../../sdk/go) for Go.
+Both: bind a listener, `serve_one` / `ServeOne` to pair an Executor, then submit work
+intents and stream native events back. (The Go SDK is byte-compatible with the Rust
+Executor — cross-verified in CI.)
+
 **Today, deeper:** integrate the `v0` wire protocol directly over a WebSocket — the
 whole contract is in [spec.md](../spec.md), and `keyward orchestrator` is a working
 reference.
-
-**Roadmap:** a drop-in **Orchestrator SDK** to embed the client in-process (the
-proxy already covers zero-code-change integration).
 
 ## The message flow
 
