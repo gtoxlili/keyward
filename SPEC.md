@@ -10,8 +10,15 @@ The keywords MUST, MUST NOT, SHOULD, MAY are used as in RFC 2119.
 ## 1. Transport
 
 Keyward is transport-agnostic. It needs exactly one **bidirectional, reliable, ordered,
-message-oriented** channel between Executor and Orchestrator. A WebSocket, a gRPC bidi stream, an
-HTTP/2 stream, or a tunnel stood up with `frp` all qualify.
+message-oriented** channel between Executor and Orchestrator. An outbound WebSocket or a gRPC
+bidi stream is the expected shape; an HTTP/2 stream qualifies too.
+
+The dialed channel is an **application-level connection the Orchestrator pushes work down**, not a
+published port. General-purpose tunnel appliances (`frp`, Cloudflare Tunnel, ngrok, Tailscale
+Funnel) are built for the opposite job — exposing an inbound listener to the public — and several
+interpose a third-party edge the Owner does not control. They MAY back a transport adapter, but
+only if they preserve invariant 1 below and do not require the Executor to accept inbound
+connections; the protocol MUST NOT assume them.
 
 Two invariants the transport MUST hold:
 
@@ -67,12 +74,27 @@ a code to paste, exactly the WalletConnect gesture. The token MUST be short-live
 
 ```json
 { "kw": "0", "type": "paired", "sid": "kw_sess_...", "mid": "01J...",
-  "orchestrator": { "name": "acme-agent", "id": "orch_..." } }
+  "orchestrator": { "name": "acme-agent", "id": "orch_..." },
+  "pubkey": "ed25519:9d8f...",
+  "sig": "ed25519-sig over sid, base64" }
 ```
 
-After `paired` the session is open. Mutual authentication beyond the pairing token (e.g. the
-Executor pinning an Orchestrator public key) is RECOMMENDED; its mechanism is deferred past v0
-(§9).
+- `pubkey` is the Orchestrator's **long-term identity key**; `sig` is a detached signature over the
+  assigned `sid`. The Executor MUST verify `sig` against `pubkey` before treating the session as
+  open, and MUST **pin** `pubkey` on first contact (trust-on-first-use). On any later pairing the
+  Executor MUST require the same pinned identity and a valid `sig`; a different key, or a bad
+  signature, MUST be refused. This is what makes a stolen pairing token alone insufficient to bind
+  (§9): without the Orchestrator's private key, an attacker cannot satisfy the signature.
+- To survive Orchestrator key rotation and multi-instance (autoscaled) deployments without forcing
+  the Owner to re-pair, the pinned `pubkey` SHOULD be a **root/account identity** that signs
+  short-lived per-instance operational keys (the SSH-CA pattern); the Executor then accepts any
+  operational key chaining to the pinned root. Pinning a single bare operational key is NOT
+  RECOMMENDED.
+
+After `paired` the session is open. TOFU's one weakness is the first contact; to close it the
+Executor SHOULD confirm the `pubkey` fingerprint out of band (a short string shown in the Executor
+UI/terminal, or a passkey/WebAuthn approval whose challenge embeds the fingerprint for hosted
+Orchestrators).
 
 ## 4. Work intent
 
@@ -152,21 +174,46 @@ on budget.
 ```
 
 - `models` MAY use a trailing-`*` glob.
-- `budget.spent_usd` is tracked by the Executor from reported `usage` and provider pricing; how
-  pricing is sourced is implementation-defined in v0.
+- `budget.spent_usd` is tracked by the Executor from provider-reported `usage` (the billing source
+  of truth) and per-model pricing. Pricing SHOULD be sourced from a machine-readable registry such
+  as LiteLLM's `model_prices_and_context_window.json`, refreshed on a schedule with a pinned
+  fallback copy; Executors MUST NOT scrape provider HTML. Client-side token counting
+  (tiktoken / the provider's token-count endpoint) MAY be used as a pre-flight admission estimate
+  and as a fallback when a stream is interrupted before `usage` arrives.
 - **Enforcement order:** provider → model → orchestrator → expiry → rate → budget. The first failing
   check produces the matching `policy_*` error and aborts.
+- **Budget vs. streaming.** Final cost is not known until the stream ends, and an interrupted
+  stream may report no `usage` at all — and closing the channel does **not** stop the provider from
+  billing the generation (§7). A hard cap is therefore enforced at **admission** (a pre-flight
+  estimate MAY reject an obviously-over-budget intent) and reconciled **post-hoc** from reported
+  `usage`; an Executor MAY additionally meter mid-stream and abort at the cap.
 
 Custody stops the key from leaking; **policy stops it from being abused.** Both are the point.
 
 ## 7. Session lifecycle
 
-- A session lives as long as the channel. On channel loss the Orchestrator MAY re-establish through
-  the transport; whether the same `sid` resumes or a fresh pairing is required is
-  transport/implementation-defined in v0.
-- An in-flight `mid` whose channel dropped before its terminal frame is **failed**. The Orchestrator
-  MAY re-issue under a new `mid`, but idempotency is the Orchestrator's problem — provider calls are
-  not idempotent.
+- A session lives as long as the channel. On channel loss the session is **suspended**, not failed:
+  the Orchestrator MAY re-establish through the transport and resume an in-flight intent.
+- **Resumption.** Each intent's `work_chunk`s carry a monotonic `seq` from 0 (§5). The transport
+  gives ordering; the `seq` is the resumable cursor — do not reuse a transport stream id for it. An
+  Executor SHOULD retain recently-sent chunks for an in-flight `mid` in a bounded per-intent buffer.
+  On reconnect the Orchestrator MAY send
+
+  ```json
+  { "type": "resume", "sid": "kw_sess_...", "mid": "01J...", "last_seq": 41 }
+  ```
+
+  and the Executor replays `seq > last_seq` from its buffer, then continues live. If `last_seq`
+  predates the buffer, the Executor returns a `work_error` with `code: "unrecoverable"` and the
+  Orchestrator MAY re-issue under a new `mid`. The Orchestrator detects gaps when `seq != expected`
+  and dedupes on `mid`+`seq` (delivery is at-least-once; rendering is exactly-once).
+- **A dropped channel is a suspend, not a cancel.** To stop work deliberately the Orchestrator sends
+  `{ "type": "cancel", "mid": "..." }`. Closing the channel MUST NOT be relied on to halt a
+  generation: most provider streaming endpoints have no server-side cancel, so the provider keeps
+  generating — and **billing** — regardless. An Executor that keeps a generation alive for resume is
+  therefore mutually exclusive with one that aborts to save tokens; which it does is policy.
+- An in-flight `mid` that can be neither resumed nor cancelled cleanly is **failed**; re-issuing is
+  the Orchestrator's call, and idempotency is its problem — provider calls are not idempotent.
 - Either side MAY send `{ "type": "close", "reason": "…" }`. An Owner revoking at the Executor
   surfaces as a `close` with `reason: "revoked"`, or simply as a dropped channel.
 
@@ -188,6 +235,7 @@ Custody stops the key from leaking; **policy stops it from being abused.** Both 
 | `bad_request` | malformed intent | no |
 | `unsupported_type` | unknown message type | no |
 | `unsupported_provider` | Executor cannot serve this `provider` | no |
+| `unrecoverable` | `resume` requested past the retained buffer (§7) | n/a |
 
 ## 9. Security considerations
 
@@ -199,8 +247,15 @@ Custody stops the key from leaking; **policy stops it from being abused.** Both 
   bounds the spend. Implementations SHOULD show the Owner every paired Orchestrator and let them
   revoke one.
 - **Authenticate the Orchestrator.** The Executor spends the Owner's money on the Orchestrator's
-  say-so, so it SHOULD authenticate the Orchestrator (e.g. a public key pinned at pairing) rather
-  than trust the channel alone. Concrete mechanism deferred past v0.
+  say-so, so it MUST authenticate the Orchestrator rather than trust the channel alone. The
+  mechanism (pinned Ed25519 identity, signature over `sid`, root-key→operational-key chaining,
+  out-of-band fingerprint confirmation) is specified in §3.
+- **Channel encryption vs. a relay.** A direct dial-out to the Orchestrator over TLS gets
+  confidentiality and integrity from the transport (§1). If an **untrusted relay** is interposed —
+  one that only stores and forwards opaque frames — TLS to the relay is not enough; the Executor
+  and Orchestrator SHOULD run an inner mutually-authenticated encrypted layer (a Noise handshake
+  keyed by the §3 identities) so the relay sees only ciphertext. A concrete Noise profile is an
+  open question (below).
 - **Payloads are not protected.** Prompts and completions are visible to the Orchestrator by
   construction. Keyward is about custody of the *credential*, not confidentiality of the *content*.
   Do not rely on it for the latter.
@@ -216,10 +271,13 @@ v1.**
 
 These are unresolved on purpose, and feedback on them is the most useful thing an issue can carry:
 
-- The Orchestrator-authentication mechanism (§3, §9).
-- Session resumption semantics across channel loss (§7).
-- Where budget pricing data comes from (§6).
+- **The concrete Noise profile** for the inner relay layer (§9): pattern (`XX` first-contact, `KK`
+  vs `IKpsk2` steady-state), framing (Noise caps messages at 65535 bytes), and the re-handshake
+  schedule for forward secrecy on a long-lived channel.
 - A binary/CBOR transport profile (§1).
 - Multi-key / multi-account Executors: a single Executor fronting several providers or several
   accounts of one provider — assumed reachable via `provider`, but selection beyond that is
   under-specified.
+
+Resolved since the first draft (mechanisms now normative above): Orchestrator authentication
+(§3/§9), session resumption across channel loss (§7), and the budget-pricing data source (§6).

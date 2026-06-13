@@ -68,8 +68,10 @@ Owner                Executor                 Orchestrator              Provider
 
 1. You run an Executor and give it your key as a local secret. It **dials out** to the Orchestrator
    and pairs — think scanning a WalletConnect QR. Dialing out means no open ports and nothing
-   public on your side; it's a reverse tunnel (frp, a WebSocket, a gRPC stream — pick your poison,
-   the protocol doesn't care).
+   public on your side: it's an outbound connection the Orchestrator pushes work down (a WebSocket
+   or a gRPC stream), not a published port. The protocol is transport-agnostic, but it's a
+   *dial-out app connection*, not a tunnel appliance — `frp`/ngrok/Cloudflare Tunnel are built to
+   expose an inbound listener, which is the opposite shape (see [SPEC §1](./SPEC.md)).
 2. When the Orchestrator wants an LLM call, it sends a work intent over that session: model,
    messages, tools, params. No key — it doesn't have one to send.
 3. The Executor checks the intent against the limits *you* set (allowed models, budget, rate, which
@@ -144,12 +146,17 @@ abused.
 
 ## Roadmap
 
-- [ ] `v0` spec — wire format for pairing, the work intent, streaming frames, and the policy object.
-- [ ] Reference Executor — open source, reproducible; a local binary plus one-click serverless
-      templates.
+- [x] `v0` spec — wire format for pairing, the work intent, streaming frames, and the policy object.
+      Drafted in [SPEC.md](./SPEC.md); pairing auth, resumption, and budget pricing are now resolved.
+- [~] Reference Executor — open source, reproducible; a local binary plus one-click serverless
+      templates. A Rust **walking skeleton** runs end to end today — see
+      [IMPLEMENTATION.md](./IMPLEMENTATION.md). Serverless templates and reproducible-build pipeline next.
 - [ ] Orchestrator SDK — ideally you integrate by swapping your provider client for one line.
-- [ ] Transport adapters — reverse tunnel (frp-style), WebSocket, gRPC. The protocol is transport-agnostic.
-- [ ] Provider adapters — OpenAI-compatible first, then Anthropic, Gemini, and so on.
+- [~] Transport adapters — outbound **WebSocket** first (done in the skeleton), then a gRPC bidi
+      stream; the protocol is transport-agnostic. (Tunnel appliances are the wrong shape — see SPEC §1.)
+- [~] Provider adapters — OpenAI Chat-Completions first (done; covers OpenAI-compatible providers),
+      then Anthropic Messages, the OpenAI Responses API, Gemini, and so on.
+- [ ] Channel E2E crypto — a Noise inner layer for the untrusted-relay case (SPEC §9).
 - [ ] A conformance suite, once there's more than one implementation to keep honest.
 
 ## Contributing

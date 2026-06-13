@@ -1,0 +1,303 @@
+//! Keyward v0 wire types and policy engine.
+//!
+//! This crate is the transport-agnostic core: the JSON envelope (§2), the message
+//! bodies (§3–§7), the policy object (§6), and the policy enforcement order. It pulls
+//! in no async runtime, no HTTP client, no crypto — so it compiles to every target
+//! (CLI, `wasm32` for Workers/browser, Lambda) unchanged.
+
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+/// Protocol major version. Carried as the string `"0"` for this draft (§2, §10).
+pub const KW: &str = "0";
+
+/// A peer descriptor: who is on each end (§3).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Peer {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
+    /// Stable identity of the peer (e.g. `orch_…`). Optional on `executor`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id: Option<String>,
+}
+
+/// Provider-reported token usage (§5).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Usage {
+    #[serde(default)]
+    pub input_tokens: u64,
+    #[serde(default)]
+    pub output_tokens: u64,
+}
+
+/// The full wire frame: envelope (§2) flattened over a typed body (§3–§7).
+///
+/// Response frames echo the originating intent's `mid`; `Body::WorkChunk.seq`
+/// disambiguates ordering and drives gap detection / resume (§5, §7).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Frame {
+    pub kw: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sid: Option<String>,
+    pub mid: String,
+    #[serde(flatten)]
+    pub body: Body,
+}
+
+impl Frame {
+    pub fn new(sid: Option<String>, mid: impl Into<String>, body: Body) -> Self {
+        Frame { kw: KW.to_string(), sid, mid: mid.into(), body }
+    }
+}
+
+/// Message bodies, internally tagged by `type` (§2).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum Body {
+    /// Executor → Orchestrator: pairing handshake (§3).
+    Hello {
+        pairing_token: String,
+        executor: Peer,
+        providers: Vec<String>,
+        policy_digest: String,
+        /// Executor's long-term identity pubkey (base64). Lets the Orchestrator
+        /// pin the Executor symmetrically. RECOMMENDED.
+        #[serde(skip_serializing_if = "Option::is_none")]
+        pubkey: Option<String>,
+    },
+    /// Orchestrator → Executor: session opened (§3).
+    ///
+    /// `pubkey` + `sig` resolve the §9 open question: the Orchestrator presents its
+    /// long-term identity key and signs the freshly-assigned `sid`. The Executor pins
+    /// the key on first contact (TOFU) and verifies `sig` on every reconnect. A stolen
+    /// pairing token alone is then useless — binding needs the private key.
+    Paired {
+        orchestrator: Peer,
+        /// Orchestrator identity pubkey, base64 (Ed25519 in v0).
+        pubkey: String,
+        /// Detached signature over the assigned `sid`, base64.
+        sig: String,
+    },
+    /// Orchestrator → Executor: perform one provider call (§4).
+    Work {
+        provider: String,
+        /// Provider-native request body, MINUS any credential (§4).
+        request: Value,
+    },
+    /// Executor → Orchestrator: intent passed policy, provider call started (§5).
+    WorkAccepted {},
+    /// Executor → Orchestrator: one streamed chunk (§5).
+    WorkChunk {
+        /// Monotonic per-intent sequence, from 0. Drives gap detection and resume.
+        seq: u64,
+        /// Provider-native chunk, relayed verbatim.
+        delta: Value,
+    },
+    /// Executor → Orchestrator: terminal success (§5).
+    WorkDone {
+        #[serde(skip_serializing_if = "Option::is_none")]
+        result: Option<Value>,
+        usage: Usage,
+    },
+    /// Executor → Orchestrator: terminal failure (§5, §8).
+    WorkError {
+        code: String,
+        message: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        provider_status: Option<u16>,
+    },
+    /// Orchestrator → Executor: resume a dropped intent from `last_seq` (§7).
+    /// `last_seq = -1` means "from the beginning".
+    Resume { intent_mid: String, last_seq: i64 },
+    /// Orchestrator → Executor: deliberately cancel an in-flight intent (§7).
+    /// Distinct from a dropped channel: a drop suspends, a `cancel` aborts.
+    Cancel { intent_mid: String },
+    /// Either side: orderly teardown (§7).
+    Close { reason: String },
+    /// Envelope-level fault (§8). Never closes the channel by itself.
+    Error { code: String, message: String },
+}
+
+// ---------------------------------------------------------------------------
+// Policy (§6)
+// ---------------------------------------------------------------------------
+
+/// Owner-defined limits, enforced at the Executor, not changeable by the
+/// Orchestrator (§6). All fields optional; absence = unrestricted for that
+/// dimension (but implementations SHOULD default-deny on budget).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Policy {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub providers: Option<Vec<String>>,
+    /// Model allowlist; entries MAY use a trailing `*` glob.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub models: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub orchestrators: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub budget: Option<Budget>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rate: Option<Rate>,
+    /// RFC3339 instant (UTC `Z`). Compared lexicographically in v0.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Budget {
+    pub limit_usd: f64,
+    pub window: String,
+    #[serde(default)]
+    pub spent_usd: f64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Rate {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rpm: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tpm: Option<u32>,
+}
+
+/// A policy rejection, carrying the matching §8 error code.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Denied {
+    Provider,
+    Model,
+    Orchestrator,
+    Expired,
+    Rate,
+    Budget,
+}
+
+impl Denied {
+    /// The `work_error.code` for this denial (§8).
+    pub fn code(&self) -> &'static str {
+        match self {
+            Denied::Provider => "policy_provider",
+            Denied::Model => "policy_model",
+            Denied::Orchestrator => "policy_orchestrator",
+            Denied::Expired => "policy_expired",
+            Denied::Rate => "policy_rate",
+            Denied::Budget => "policy_budget",
+        }
+    }
+}
+
+/// Live counters the Executor threads into each check (rate/budget are stateful,
+/// tracked by the Executor — not by the Orchestrator, and not trusted from the wire).
+#[derive(Debug, Clone, Copy, Default)]
+pub struct Live<'a> {
+    /// Requests already made in the current minute (for `rate.rpm`).
+    pub rpm_used: u32,
+    /// USD spent so far in the current budget window (for `budget.limit_usd`).
+    pub spent_usd: f64,
+    /// Current UTC instant as RFC3339, for `expires_at`.
+    pub now_rfc3339: &'a str,
+}
+
+impl Policy {
+    /// Enforce the policy in the §6 order:
+    /// provider → model → orchestrator → expiry → rate → budget.
+    /// Returns the first failing dimension, or `Ok(())`.
+    pub fn check(&self, provider: &str, model: &str, orchestrator: &str, live: Live) -> Result<(), Denied> {
+        if let Some(ps) = &self.providers {
+            if !ps.iter().any(|p| p == provider) {
+                return Err(Denied::Provider);
+            }
+        }
+        if let Some(ms) = &self.models {
+            if !ms.iter().any(|m| glob_match(m, model)) {
+                return Err(Denied::Model);
+            }
+        }
+        if let Some(os) = &self.orchestrators {
+            if !os.iter().any(|o| o == orchestrator) {
+                return Err(Denied::Orchestrator);
+            }
+        }
+        if let Some(exp) = &self.expires_at {
+            if !live.now_rfc3339.is_empty() && live.now_rfc3339 >= exp.as_str() {
+                return Err(Denied::Expired);
+            }
+        }
+        if let Some(rate) = &self.rate {
+            if let Some(rpm) = rate.rpm {
+                if live.rpm_used >= rpm {
+                    return Err(Denied::Rate);
+                }
+            }
+        }
+        if let Some(b) = &self.budget {
+            // Spend is tracked live by the Executor; the policy only carries the cap.
+            if live.spent_usd >= b.limit_usd {
+                return Err(Denied::Budget);
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Trailing-`*` glob match for model allowlists (§6). `"a-*"` matches `"a-foo"`;
+/// otherwise an exact match.
+pub fn glob_match(pattern: &str, value: &str) -> bool {
+    match pattern.strip_suffix('*') {
+        Some(prefix) => value.starts_with(prefix),
+        None => pattern == value,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn glob() {
+        assert!(glob_match("claude-3-5-sonnet-*", "claude-3-5-sonnet-20241022"));
+        assert!(glob_match("gpt-4o", "gpt-4o"));
+        assert!(!glob_match("gpt-4o", "gpt-4o-mini"));
+        assert!(glob_match("*", "anything"));
+    }
+
+    #[test]
+    fn enforcement_order_provider_first() {
+        let p = Policy {
+            providers: Some(vec!["openai".into()]),
+            models: Some(vec!["gpt-4o".into()]),
+            ..Default::default()
+        };
+        // Wrong provider AND wrong model -> provider checked first.
+        assert_eq!(
+            p.check("anthropic", "claude", "acme", Live::default()),
+            Err(Denied::Provider)
+        );
+    }
+
+    #[test]
+    fn budget_exhausted() {
+        let p = Policy {
+            budget: Some(Budget { limit_usd: 20.0, window: "month".into(), spent_usd: 0.0 }),
+            ..Default::default()
+        };
+        let live = Live { spent_usd: 20.0, ..Default::default() };
+        assert_eq!(p.check("openai", "gpt-4o", "acme", live), Err(Denied::Budget));
+    }
+
+    #[test]
+    fn roundtrip_work_frame() {
+        let f = Frame::new(
+            Some("kw_sess_1".into()),
+            "01J",
+            Body::WorkChunk { seq: 7, delta: serde_json::json!({"x": 1}) },
+        );
+        let s = serde_json::to_string(&f).unwrap();
+        let back: Frame = serde_json::from_str(&s).unwrap();
+        match back.body {
+            Body::WorkChunk { seq, .. } => assert_eq!(seq, 7),
+            _ => panic!("wrong body"),
+        }
+        assert!(s.contains("\"type\":\"work_chunk\""));
+        assert!(s.contains("\"kw\":\"0\""));
+    }
+}

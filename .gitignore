@@ -1,0 +1,5 @@
+# Rust build artifacts
+/target
+
+# Cargo.lock IS committed — this is a binary/reference implementation and a pinned
+# dependency graph is part of the reproducible-build story. Do not ignore it.

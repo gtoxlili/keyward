@@ -1,0 +1,33 @@
+[workspace]
+resolver = "2"
+members = ["crates/keyward-proto", "crates/keyward"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/gtoxlili/keyward"
+rust-version = "1.95"
+
+[workspace.dependencies]
+keyward-proto = { path = "crates/keyward-proto" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
+tokio-tungstenite = "0.24"
+futures-util = { version = "0.3", default-features = false, features = ["sink", "std"] }
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+rand_core = { version = "0.6", features = ["getrandom"] }
+uuid = { version = "1", features = ["v4"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "stream", "rustls-tls"] }
+secrecy = "0.10"
+
+# Reproducible-build posture: deterministic, path-independent release artifacts.
+# (See docs verify story; pair with a pinned toolchain + container at release time.)
+[profile.release]
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"

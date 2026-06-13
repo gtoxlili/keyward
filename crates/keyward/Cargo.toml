@@ -1,0 +1,33 @@
+[package]
+name = "keyward"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Keyward reference Executor + a mock Orchestrator for the end-to-end demo."
+default-run = "keyward"
+
+[[bin]]
+name = "keyward"
+path = "src/main.rs"
+
+[dependencies]
+keyward-proto.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+tokio.workspace = true
+tokio-tungstenite.workspace = true
+futures-util.workspace = true
+ed25519-dalek.workspace = true
+rand_core.workspace = true
+uuid.workspace = true
+secrecy.workspace = true
+reqwest = { workspace = true, optional = true }
+
+[features]
+default = []
+# Real OpenAI-compatible provider adapter (pulls in reqwest/rustls). The `demo`
+# and the mock provider work without it.
+openai = ["dep:reqwest"]
