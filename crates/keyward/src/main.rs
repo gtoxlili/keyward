@@ -13,6 +13,7 @@ mod provider;
 #[cfg(feature = "proxy")]
 mod proxy;
 mod secret;
+mod transport;
 mod wire;
 
 #[cfg(test)]

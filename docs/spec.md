@@ -32,6 +32,13 @@ Messages are UTF-8 JSON objects, one per transport frame. A binary/CBOR profile 
 out of scope for v0. The channel MUST be encrypted (TLS or equivalent) — Keyward assumes
 confidentiality and integrity from the transport.
 
+Both reference transports are implemented and interchangeable: an outbound **WebSocket** (one JSON
+object per text frame) and a **gRPC** bidirectional stream (`service Keyward { rpc Open(stream
+Frame) returns (stream Frame); }`, where each `Frame { string json = 1; }` wraps one canonical JSON
+message). gRPC keeps the Executor as the client so invariant 1 still holds — it dials out and opens
+the stream. The Executor picks the adapter by URL scheme (`ws://` / `wss://` vs `grpc://` /
+`grpcs://`); everything above the channel is identical.
+
 ## 2. Message envelope
 
 Every message carries:

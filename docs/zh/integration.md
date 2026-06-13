@@ -23,7 +23,12 @@ keyward proxy   # 等一个 executor 配对，然后服务 http://127.0.0.1:8088
 `serve_one` / `ServeOne` 配对一个 Executor，然后发 work intent、流式拿回原生事件。（Go SDK 与 Rust
 Executor 字节级兼容，CI 里跨语言验证过。）
 
-**现在 · 更底层：** 直接对着 WebSocket 实现 `v0` 协议——完整契约在 [spec.md](../spec.md)，
+**传输 · WebSocket 或 gRPC：** 协议与传输无关（spec §1）。Rust SDK 两种都能起——`serve_one`
+（WebSocket）或 `serve_one_grpc`（gRPC，`--features grpc` 构建）——Executor 按 URL scheme 选择
+（`ws://` / `wss://` 对 `grpc://` / `grpcs://`）。gRPC 下 Executor 仍是拨出方，照样不需要入站端口；
+通道之上的一切完全一致。
+
+**现在 · 更底层：** 直接对着 WebSocket 或 gRPC 双向流实现 `v0` 协议——完整契约在 [spec.md](../spec.md)，
 `keyward orchestrator` 是可读可跑的参考。
 
 ## 消息流

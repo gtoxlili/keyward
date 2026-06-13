@@ -1,6 +1,10 @@
 [workspace]
 resolver = "2"
-members = ["crates/keyward-proto", "crates/keyward", "crates/keyward-sdk"]
+members = ["crates/keyward-proto", "crates/keyward", "crates/keyward-sdk", "crates/keyward-grpc"]
+# keyward-grpc is the only crate that needs `protoc` to build (tonic codegen). Keep it
+# out of the default set so a plain `cargo build` stays pure-Rust; it builds when you
+# opt into gRPC (`--features grpc`) or run with `--workspace`.
+default-members = ["crates/keyward-proto", "crates/keyward", "crates/keyward-sdk"]
 
 [workspace.package]
 version = "0.0.0"

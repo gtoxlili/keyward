@@ -28,6 +28,7 @@ sha2.workspace = true
 rpassword.workspace = true
 reqwest = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
+keyward-grpc = { path = "../keyward-grpc", optional = true }
 
 # Per-platform keychain backend, native only — no system libs. macOS Keychain,
 # Windows Credential Manager, and on Linux the kernel keyutils (pure Rust, works
@@ -51,3 +52,6 @@ anthropic = ["dep:reqwest"]
 # Local OpenAI-compatible proxy (`keyward proxy`) — the Orchestrator side with an
 # HTTP front. Pulls in axum.
 proxy = ["dep:axum"]
+# gRPC transport for the Executor's dial-out (grpc:// / grpcs:// URLs). Pulls in
+# keyward-grpc (tonic/prost) and needs `protoc` at build time.
+grpc = ["dep:keyward-grpc"]

@@ -17,6 +17,16 @@ ed25519-dalek.workspace = true
 rand_core.workspace = true
 serde_json.workspace = true
 uuid.workspace = true
+keyward-grpc = { path = "../keyward-grpc", optional = true }
+
+[features]
+# gRPC transport for the Orchestrator side (`serve_one_grpc`). Pulls in keyward-grpc
+# (tonic/prost) and needs `protoc` at build time.
+grpc = ["dep:keyward-grpc"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["rt-multi-thread", "macros"] }
+
+[[example]]
+name = "grpc_chat"
+required-features = ["grpc"]

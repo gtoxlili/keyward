@@ -27,9 +27,15 @@ Both: bind a listener, `serve_one` / `ServeOne` to pair an Executor, then submit
 intents and stream native events back. (The Go SDK is byte-compatible with the Rust
 Executor — cross-verified in CI.)
 
-**Today, deeper:** integrate the `v0` wire protocol directly over a WebSocket — the
-whole contract is in [spec.md](../spec.md), and `keyward orchestrator` is a working
-reference.
+**Transport — WebSocket or gRPC:** the protocol is transport-agnostic (spec §1). The
+Rust SDK serves either — `serve_one` (WebSocket) or `serve_one_grpc` (gRPC, built with
+`--features grpc`) — and the Executor picks by URL scheme (`ws://` / `wss://` vs
+`grpc://` / `grpcs://`). The Executor stays the dialing side on gRPC too, so it still
+needs no inbound ports. Everything above the channel is identical.
+
+**Today, deeper:** integrate the `v0` wire protocol directly over a WebSocket or a gRPC
+bidi stream — the whole contract is in [spec.md](../spec.md), and `keyward orchestrator`
+is a working reference.
 
 ## The message flow
 
