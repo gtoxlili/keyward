@@ -1,6 +1,23 @@
+<div align="center">
+
+<img src="./assets/logo.png" alt="Keyward" width="140" />
+
 # Keyward
 
-> Route the work to the key, never the key to the work.
+**Route the work to the key, never the key to the work.**
+
+A non-custodial **BYOK** protocol — your API key never leaves your side.
+
+[![CI](https://github.com/gtoxlili/keyward/actions/workflows/ci.yml/badge.svg)](https://github.com/gtoxlili/keyward/actions/workflows/ci.yml)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](./LICENSE)
+[![Status](https://img.shields.io/badge/status-incubating%20·%20v0-orange.svg)](#roadmap)
+![Built with Rust](https://img.shields.io/badge/built%20with-Rust-dea584.svg?logo=rust&logoColor=white)
+
+[Docs](./docs/) · [Spec](./docs/spec.md) · [For users](./docs/en/users.md) · [For app builders](./docs/en/integration.md)
+
+</div>
+
+---
 
 Most things that call themselves "BYOK" aren't, really. You paste your API key into someone's
 dashboard and from that moment it lives on their server. You're trusting their ops, their logs,
@@ -13,17 +30,21 @@ leaves your side.** The app sends work to where your key lives; your key never t
 If you've used WalletConnect, this will feel familiar. The dApp asks, your wallet signs, the dApp
 never sees your private key. Keyward is that idea, for API keys.
 
-**Status:** early, `v0`, unstable — but real enough to run. The wire protocol is in
-**[SPEC.md](./docs/spec.md)**, and there's a working Rust reference Executor:
-`cargo run -- demo` takes a call end to end (dial-out pairing, a pinned root→operational key chain,
-policy enforced before the provider is touched, native streaming relayed and metered), and
-`cargo run -- resume-demo` drops the channel mid-stream and resumes. See
-**[IMPLEMENTATION.md](./docs/implementation.md)** for what's real and what's still stubbed. Treat every
-detail as provisional until `v1`; issues and pushback welcome.
+> **Status:** `v0`, unstable, and incubating — but real enough to run. The wire protocol is drafted
+> ([spec](./docs/spec.md)) and there's a working Rust reference Executor; see
+> [what's real and what's still stubbed](./docs/implementation.md). Treat every detail as provisional
+> until `v1`. Issues and pushback welcome.
 
-Want to **use** it (bring your own key) or **integrate** it (build on it as an app)? Start with the
-**[docs](./docs/)** (English & 中文) — a guide [for users](./docs/en/users.md) and one
-[for app builders](./docs/en/integration.md).
+## Quick start
+
+```sh
+git clone https://github.com/gtoxlili/keyward && cd keyward
+cargo run -- demo          # watch the whole chain run with a mock provider — no key, no network
+cargo run -- resume-demo   # drop the channel mid-stream and resume from where it left off
+```
+
+Then bring your own key or integrate it into an app — start with the **[docs](./docs/)** (English &
+中文): [for users](./docs/en/users.md) · [for app builders](./docs/en/integration.md).
 
 ## Why bother
 
