@@ -1,0 +1,9 @@
+# Keep the build context small and the build deterministic: ship only what cargo
+# needs (the workspace crates + manifests + vendored price data).
+target/
+.git/
+.github/
+docs/
+assets/
+sdk/go/
+**/*.md
