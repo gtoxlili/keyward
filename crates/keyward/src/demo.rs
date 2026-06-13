@@ -36,7 +36,7 @@ pub async fn run() -> Result<()> {
         ),
         (
             "mock".to_string(),
-            json!({"model": "claude-3-5-sonnet-20241022", "max_tokens": 1024, "messages": [{"role": "user", "content": "And do you relay my native Anthropic body too?"}], "stream": true}),
+            json!({"model": "claude-sonnet-4-5", "max_tokens": 1024, "messages": [{"role": "user", "content": "And do you relay my native Anthropic body too?"}], "stream": true}),
         ),
         (
             "mock".to_string(),
@@ -62,10 +62,10 @@ pub async fn run() -> Result<()> {
         }
     });
 
-    // The owner's Executor: holds the key, allows only gpt-4o* and one Claude.
+    // The owner's Executor: holds the key, allows only gpt-4o* and Claude Sonnet.
     let policy = Policy {
         providers: Some(vec!["mock".into(), "openai".into()]),
-        models: Some(vec!["gpt-4o*".into(), "claude-3-5-sonnet-*".into()]),
+        models: Some(vec!["gpt-4o*".into(), "claude-sonnet-*".into()]),
         orchestrators: Some(vec!["orch_acme".into()]),
         budget: Some(Budget {
             limit_usd: 5.0,

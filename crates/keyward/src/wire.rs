@@ -1,9 +1,10 @@
 //! Transport plumbing for the WebSocket reference adapter: Frame ↔ tungstenite
-//! Message, plus tiny hex / digest helpers kept dependency-free.
+//! Message, plus small hex / fingerprint / digest helpers.
 
 use anyhow::{anyhow, Result};
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use keyward_proto::Frame;
+use sha2::{Digest, Sha256};
 use tokio_tungstenite::tungstenite::Message;
 
 /// Serialize and send one Keyward frame as a text message.
@@ -73,14 +74,10 @@ pub fn fingerprint(pubkey: &[u8]) -> String {
     [&h[0..4], &h[4..8], &h[8..12], &h[12..16]].join("-")
 }
 
-/// NOTE: placeholder digest for the v0 skeleton. The spec calls for `sha256:…`
-/// over the canonical policy bytes (§3). This stable non-cryptographic stand-in
-/// exercises the wire shape without pulling in a hash crate yet.
-pub fn policy_digest_placeholder(canonical: &str) -> String {
-    let mut h: u64 = 0xcbf29ce484222325;
-    for byte in canonical.as_bytes() {
-        h ^= *byte as u64;
-        h = h.wrapping_mul(0x100000001b3);
-    }
-    format!("fnv1a:{:016x}", h)
+/// `sha256:…` over the canonical policy bytes (§3). Lets the Orchestrator notice
+/// the limits changed without the Owner having to reveal them.
+pub fn policy_digest(canonical: &str) -> String {
+    let mut h = Sha256::new();
+    h.update(canonical.as_bytes());
+    format!("sha256:{}", hex(&h.finalize()))
 }

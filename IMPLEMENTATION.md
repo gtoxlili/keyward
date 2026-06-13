@@ -21,7 +21,7 @@ crates/
     src/provider/openai.rs    real OpenAI Chat-Completions adapter (feature = "openai")
     src/provider/anthropic.rs Anthropic Messages adapter + a tested usage accumulator
                               (feature = "anthropic")
-    src/pricing.rs         budget cost from usage (stand-in table; see §6 note)
+    src/pricing.rs         budget cost from usage × vendored LiteLLM prices (data/)
     src/executor.rs        dial out, pin+verify orchestrator key, enforce policy, relay;
                            per-intent ring buffer + reconnect/resume/cancel (§7)
     src/orchestrator.rs    mock app: issues pairing token, signs sid, drives intents
@@ -118,9 +118,6 @@ The rest is stubbed, roughly in the order I'd reach for next:
   designed in SPEC §3/§9 but not implemented.
 - **Resume auth + single-use tokens.** Reconnect re-pairs with the *same* token
   (the skeleton relaxes single-use); resume isn't yet bound by a fresh signature.
-- **Pricing data.** `pricing.rs` is a tiny embedded table; the real plan is to
-  vendor LiteLLM's `model_prices_and_context_window.json` and refresh it (SPEC §6).
-- **`policy_digest`** is an FNV stand-in, not `sha256`.
 - **Secret storage.** The CLI reads the key from an env var; OS-keychain
   (`keyring`) + `mlock`/zeroize hardening is not in yet.
 - **Byte-reproducible builds.** CI (fmt/clippy/test) and a release workflow that
