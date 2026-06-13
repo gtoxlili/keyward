@@ -578,7 +578,7 @@ pub async fn run_cli() -> Result<()> {
         .map_err(|_| anyhow!("set KEYWARD_ORCH_URL, e.g. ws://127.0.0.1:8787"))?;
     let token = std::env::var("KEYWARD_PAIRING_TOKEN").map_err(|_| anyhow!("set KEYWARD_PAIRING_TOKEN"))?;
     let providers: Vec<String> = std::env::var("KEYWARD_PROVIDERS")
-        .unwrap_or_else(|_| "mock,openai,anthropic".into())
+        .unwrap_or_else(|_| "mock,openai,openai-responses,anthropic".into())
         .split(',')
         .map(|s| s.trim().to_string())
         .filter(|s| !s.is_empty())

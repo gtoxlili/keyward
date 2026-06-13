@@ -168,10 +168,18 @@ fn chunk_text(delta: &Value) -> &str {
     if let Some(t) = delta.pointer("/choices/0/delta/content").and_then(Value::as_str) {
         return t; // OpenAI Chat Completions
     }
-    if delta.get("type").and_then(Value::as_str) == Some("content_block_delta") {
-        if let Some(t) = delta.pointer("/delta/text").and_then(Value::as_str) {
-            return t; // Anthropic Messages
+    match delta.get("type").and_then(Value::as_str) {
+        Some("content_block_delta") => {
+            if let Some(t) = delta.pointer("/delta/text").and_then(Value::as_str) {
+                return t; // Anthropic Messages
+            }
         }
+        Some("response.output_text.delta") => {
+            if let Some(t) = delta.get("delta").and_then(Value::as_str) {
+                return t; // OpenAI Responses
+            }
+        }
+        _ => {}
     }
     ""
 }

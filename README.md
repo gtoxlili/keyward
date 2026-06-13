@@ -157,9 +157,9 @@ abused.
 - [ ] Orchestrator SDK — ideally you integrate by swapping your provider client for one line.
 - [~] Transport adapters — outbound **WebSocket** first (done in the skeleton), then a gRPC bidi
       stream; the protocol is transport-agnostic. (Tunnel appliances are the wrong shape — see SPEC §1.)
-- [~] Provider adapters — OpenAI Chat-Completions and Anthropic Messages both land in the skeleton
-      (the former covers OpenAI-compatible providers for free); the OpenAI Responses API, Gemini,
-      and so on next.
+- [~] Provider adapters — OpenAI Chat-Completions, the OpenAI Responses API, and Anthropic Messages
+      all land in the skeleton (Chat-Completions covers OpenAI-compatible providers for free);
+      Gemini and so on next.
 - [ ] Channel E2E crypto — a Noise inner layer for the untrusted-relay case (SPEC §9).
 - [ ] A conformance suite, once there's more than one implementation to keep honest.
 

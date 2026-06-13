@@ -23,8 +23,17 @@ impl KeySource {
     pub fn resolve(&self, provider: &str) -> SecretString {
         match self {
             KeySource::Fixed(s) => SecretString::from(s.expose_secret().to_string()),
-            KeySource::Keychain => load_key(provider),
+            KeySource::Keychain => load_key(credential_provider(provider)),
         }
+    }
+}
+
+/// Map an API-surface provider to the account whose credential it uses. The
+/// Responses API and Chat Completions share one OpenAI key.
+fn credential_provider(provider: &str) -> &str {
+    match provider {
+        "openai-responses" => "openai",
+        p => p,
     }
 }
 
@@ -82,5 +91,11 @@ mod tests {
         assert_eq!(provider_env_var("anthropic"), "ANTHROPIC_API_KEY");
         assert_eq!(provider_env_var("openai"), "OPENAI_API_KEY");
         assert_eq!(provider_env_var("groq"), "OPENAI_API_KEY");
+    }
+
+    #[test]
+    fn responses_shares_the_openai_credential() {
+        assert_eq!(credential_provider("openai-responses"), "openai");
+        assert_eq!(credential_provider("anthropic"), "anthropic");
     }
 }

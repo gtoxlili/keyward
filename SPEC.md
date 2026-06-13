@@ -118,7 +118,10 @@ A request from the Orchestrator to perform **one** provider call.
 
 - `request` is the provider's **native** request body, minus any credential. There is no
   `Authorization` / `api_key` field — the Orchestrator has none to send.
-- The Executor selects the endpoint and attaches the credential for `provider`.
+- The Executor selects the endpoint and attaches the credential for `provider`. A `provider` value
+  names a specific **API surface**, which may map to a shared account credential: e.g. `openai`
+  (Chat Completions) and `openai-responses` (the Responses API) are distinct providers — different
+  endpoints and different streaming events — that resolve to the same OpenAI key.
 - Streaming is requested through the provider-native field (`"stream": true` for OpenAI-shaped
   providers); the Executor reflects that mode onto the wire (§5).
 
