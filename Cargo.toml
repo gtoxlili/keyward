@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = ["crates/keyward-proto", "crates/keyward"]
+members = ["crates/keyward-proto", "crates/keyward", "crates/keyward-sdk"]
 
 [workspace.package]
 version = "0.0.0"

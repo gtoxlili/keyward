@@ -732,6 +732,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "keyward-sdk"
+version = "0.0.0"
+dependencies = [
+ "anyhow",
+ "ed25519-dalek",
+ "futures-util",
+ "keyward-proto",
+ "rand_core 0.6.4",
+ "serde_json",
+ "tokio",
+ "tokio-tungstenite",
+ "uuid",
+]
+
+[[package]]
 name = "leb128fmt"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
