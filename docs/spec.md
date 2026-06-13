@@ -3,7 +3,7 @@
 > **Status: draft, unstable.** Anything here can change until `v1`. This document specifies the
 > wire-level contract between an **Executor** (holds the key, runs on the Owner's side) and an
 > **Orchestrator** (the app; holds no key). The roles, motivation, and threat model live in the
-> [README](./README.md) — this is just the bytes on the wire.
+> [README](../README.md) — this is just the bytes on the wire.
 
 The keywords MUST, MUST NOT, SHOULD, MAY are used as in RFC 2119.
 
