@@ -61,6 +61,7 @@ pub async fn run() -> Result<()> {
         pairing_token: token.into(),
         root: SigningKey::generate(&mut OsRng),
         authorized_executors: Some(vec![exec_pubkey]),
+        claimed_tokens: Default::default(),
         intents,
     };
     let server = tokio::spawn(async move {
@@ -129,6 +130,7 @@ pub async fn run_resume() -> Result<()> {
         pairing_token: token.into(),
         root: SigningKey::generate(&mut OsRng),
         authorized_executors: Some(vec![exec_pubkey]),
+        claimed_tokens: Default::default(),
         intents: Vec::new(), // this demo scripts its own two-connection flow
     };
     let server = tokio::spawn(async move {

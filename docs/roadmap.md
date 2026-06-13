@@ -35,8 +35,8 @@ verification** and the **Orchestrator SDK / proxy**.
 
 ### Security / protocol hardening
 - [ ] **Noise inner layer** — E2E crypto for the untrusted-relay case; pick the concrete profile (§9 / spec open question)
-- [ ] **Single-use pairing tokens** — enforce one-time use (the skeleton relaxes this so the resume demo can re-pair)
-- [ ] **Out-of-band fingerprint confirmation** — close the TOFU first-contact gap (§3) with a UX gesture / passkey
+- [x] **Single-use pairing tokens** — a token binds to one Executor identity; the same identity may reconnect (resume), a different one is refused
+- [~] **Out-of-band fingerprint confirmation** — `KEYWARD_EXPECT_ROOT_FP` lets the Owner pre-state the expected root fingerprint and refuse a mismatch; a passkey / QR gesture is still future
 - [ ] **Signature-bound resume** — bind `resume` to a fresh identity signature, not just a re-pair
 - [ ] **Secret hardening** — `mlock`/`setrlimit` (keep the key out of swap/core dumps) + a real hidden-TTY prompt for `set-key`
 

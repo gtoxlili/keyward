@@ -546,6 +546,17 @@ async fn verify_chain_and_pin(
     sig_hex: &str,
 ) -> Result<()> {
     let root = identity::parse_pubkey(root_pubkey_hex)?;
+    let root_fp = wire::fingerprint(&root.to_bytes());
+
+    // Out-of-band confirmation (closes the TOFU first-contact gap, §3): if the
+    // Owner pre-states the expected root fingerprint, refuse anything else.
+    if let Ok(expected) = std::env::var("KEYWARD_EXPECT_ROOT_FP") {
+        if !expected.is_empty() && !expected.eq_ignore_ascii_case(&root_fp) {
+            return Err(anyhow!(
+                "orchestrator root fingerprint {root_fp} != expected {expected} — refusing to bind"
+            ));
+        }
+    }
 
     // Pin the root on first contact; refuse a changed root thereafter.
     {
@@ -558,10 +569,7 @@ async fn verify_chain_and_pin(
             }
             Some(_) => {}
             None => {
-                println!(
-                    "[executor] TOFU: pinning orchestrator ROOT key  fp={}",
-                    wire::fingerprint(&root.to_bytes())
-                );
+                println!("[executor] TOFU: pinning orchestrator ROOT key  fp={root_fp}");
                 *guard = Some(root);
             }
         }

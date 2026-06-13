@@ -5,6 +5,9 @@
 //! This is a test/demo harness, not a product surface. The real Orchestrator is
 //! whatever app integrates the (future) SDK.
 
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
 use anyhow::{anyhow, bail, Result};
 use ed25519_dalek::{Signer, SigningKey};
 use futures_util::{Sink, Stream, StreamExt};
@@ -28,6 +31,10 @@ pub struct OrchestratorConfig {
     /// accepts any Executor that proves possession of its key; `Some` lets a SaaS
     /// admit only registered users (§9).
     pub authorized_executors: Option<Vec<String>>,
+    /// Single-use bookkeeping: a pairing token binds to one Executor identity
+    /// (`token → pubkey`). The same identity may re-present it (reconnect/resume);
+    /// a different identity is refused.
+    pub claimed_tokens: Arc<Mutex<HashMap<String, String>>>,
     /// Scripted intents: (provider, native request body without credential).
     pub intents: Vec<(String, Value)>,
 }
@@ -155,6 +162,7 @@ pub async fn run_cli() -> Result<()> {
         pairing_token: token,
         root: SigningKey::generate(&mut OsRng),
         authorized_executors,
+        claimed_tokens: Default::default(),
         intents: vec![(
             provider,
             json!({"model": model, "messages": [{"role": "user", "content": prompt}], "stream": true}),
@@ -190,8 +198,9 @@ pub(crate) fn chunk_text(delta: &Value) -> &str {
 /// proof (the Executor's signature over the token with its identity key), and — when
 /// the Orchestrator runs an allow-list — that the identity is authorized. This lets a
 /// SaaS admit only registered users, without ever weakening the Owner's ability to
-/// inspect their own key. (The v0 skeleton relaxes single-use tokens so the resume
-/// demo can re-pair; a real Orchestrator would not.)
+/// inspect their own key. A pairing token is single-use *per identity*: it binds to
+/// the first Executor that claims it, and only that identity may re-present it — so
+/// the resume demo re-pairs, but a different party can't reuse a leaked token.
 pub(crate) fn authenticate_executor(hello: &Body, cfg: &OrchestratorConfig) -> Result<()> {
     let Body::Hello {
         pairing_token,
@@ -222,6 +231,17 @@ pub(crate) fn authenticate_executor(hello: &Body, cfg: &OrchestratorConfig) -> R
         let pk = pubkey.as_deref().unwrap_or("");
         if !allow.iter().any(|a| a == pk) {
             bail!("executor not authorized");
+        }
+    }
+    // Single-use: a token binds to one identity. The same identity may re-present
+    // it (reconnect/resume); a different one is refused.
+    if let Some(pk) = pubkey {
+        let mut claimed = cfg.claimed_tokens.lock().unwrap();
+        match claimed.get(pairing_token.as_str()) {
+            Some(owner) if owner != pk => bail!("pairing token already bound to another executor"),
+            _ => {
+                claimed.insert(pairing_token.clone(), pk.clone());
+            }
         }
     }
     let fp = pubkey
@@ -483,6 +503,7 @@ mod tests {
             pairing_token: "pt".into(),
             root: SigningKey::generate(&mut OsRng),
             authorized_executors: authorized,
+            claimed_tokens: Default::default(),
             intents: vec![],
         }
     }
@@ -552,5 +573,17 @@ mod tests {
         let k = SigningKey::generate(&mut OsRng);
         let c = cfg(Some(vec![pk_hex(&k)]));
         assert!(authenticate_executor(&hello("WRONG", &k, true), &c).is_err());
+    }
+
+    #[test]
+    fn token_binds_to_one_identity() {
+        let c = cfg(None);
+        let alice = SigningKey::generate(&mut OsRng);
+        let bob = SigningKey::generate(&mut OsRng);
+        // Alice claims the token, and may re-present it (reconnect / resume).
+        assert!(authenticate_executor(&hello("pt", &alice, true), &c).is_ok());
+        assert!(authenticate_executor(&hello("pt", &alice, true), &c).is_ok());
+        // A different identity is refused the already-claimed token.
+        assert!(authenticate_executor(&hello("pt", &bob, true), &c).is_err());
     }
 }

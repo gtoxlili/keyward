@@ -132,10 +132,10 @@ SaaS can admit only registered users without weakening the Owner's verifiability
 The rest is stubbed, roughly in the order I'd reach for next:
 - **Channel E2E crypto (Noise).** The reference channel is plain WSS to the
   Orchestrator; the Noise inner layer (for an untrusted relay) isn't wired yet.
-- **Single-use pairing tokens + OOB fingerprint.** Reconnect re-pairs with the
-  *same* token (the skeleton relaxes single-use so the resume demo can re-pair);
-  and nothing yet forces the out-of-band root-fingerprint confirmation that closes
-  the TOFU first-contact gap (SPEC §3).
+- **OOB fingerprint UX.** `KEYWARD_EXPECT_ROOT_FP` lets the Owner pre-state the
+  expected orchestrator root fingerprint (and the Executor refuses a mismatch), but
+  there's no interactive passkey / QR gesture yet. (Single-use pairing tokens —
+  bound to one Executor identity — are done.)
 - **Secret hardening beyond the keychain.** Keys resolve per provider from the OS
   keychain — native backends only (macOS Keychain, Windows Credential Manager,
   Linux kernel keyutils; no D-Bus / secret-service dependency) — with an env
