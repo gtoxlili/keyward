@@ -10,7 +10,8 @@ where
     S: Sink<Message> + Unpin,
     S::Error: std::error::Error + Send + Sync + 'static,
 {
-    sink.send(Message::Text(serde_json::to_string(frame)?)).await?;
+    sink.send(Message::Text(serde_json::to_string(frame)?.into()))
+        .await?;
     Ok(())
 }
 

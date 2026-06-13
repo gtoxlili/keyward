@@ -14,7 +14,7 @@ where
     S::Error: std::error::Error + Send + Sync + 'static,
 {
     let txt = serde_json::to_string(frame)?;
-    sink.send(Message::Text(txt)).await?;
+    sink.send(Message::Text(txt.into())).await?;
     Ok(())
 }
 
