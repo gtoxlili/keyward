@@ -85,3 +85,50 @@ pub async fn run() -> Result<()> {
     println!("note: the key string lived only in the Executor process; it never appears in any frame above.");
     Ok(())
 }
+
+/// `keyward resume-demo` — §7 in action: stream an intent, drop the channel
+/// mid-stream, let the Executor re-dial and resume from where the Orchestrator
+/// left off, then cancel a second intent.
+pub async fn run_resume() -> Result<()> {
+    let listener = TcpListener::bind("127.0.0.1:0").await?;
+    let addr = listener.local_addr()?;
+    let url = format!("ws://{addr}");
+    let token = "pt_demo_resume";
+
+    println!("== Keyward resume / cancel demo ==");
+    println!("orchestrator at {url}\n");
+
+    let ocfg = OrchestratorConfig {
+        name: "acme-agent".into(),
+        id: "orch_acme".into(),
+        pairing_token: token.into(),
+        signing: SigningKey::generate(&mut OsRng),
+        intents: Vec::new(), // this demo scripts its own two-connection flow
+    };
+    let server = tokio::spawn(async move {
+        if let Err(e) = orchestrator::serve_resume_demo(listener, ocfg).await {
+            eprintln!("[orchestr] error: {e}");
+        }
+    });
+
+    let policy = Policy {
+        providers: Some(vec!["mock".into()]),
+        models: Some(vec!["gpt-4o*".into()]),
+        orchestrators: Some(vec!["orch_acme".into()]),
+        budget: Some(Budget { limit_usd: 5.0, window: "month".into(), spent_usd: 0.0 }),
+        rate: Some(Rate { rpm: Some(120), tpm: None }),
+        expires_at: None,
+    };
+    let cfg = ExecutorConfig {
+        name: "keyward-exec".into(),
+        providers: vec!["mock".into()],
+        policy,
+        provider_key: SecretString::from("sk-DEMO-this-string-never-leaves-the-executor".to_string()),
+        pinned: Arc::new(Mutex::new(None)),
+    };
+
+    executor::run(&url, token, cfg).await?;
+    let _ = server.await;
+    println!("\n== resume / cancel demo complete ==");
+    Ok(())
+}

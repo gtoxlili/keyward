@@ -3,9 +3,10 @@
 > **Status: walking skeleton.** It runs end to end and exercises the load-bearing
 > ideas — dial-out pairing, a pinned/verified Orchestrator identity, policy
 > enforcement before the provider is touched, native-body passthrough, streamed
-> relay with per-intent sequence numbers, and usage metering. Several pieces are
-> deliberately stubbed (listed at the bottom). This is the thing to argue with and
-> build on, not to ship.
+> relay with per-intent sequence numbers, usage metering, and survive-a-dropped-
+> channel resumption (plus explicit cancel). Several pieces are deliberately
+> stubbed (listed at the bottom). This is the thing to argue with and build on,
+> not to ship.
 
 ## Layout
 
@@ -21,9 +22,11 @@ crates/
     src/provider/anthropic.rs Anthropic Messages adapter + a tested usage accumulator
                               (feature = "anthropic")
     src/pricing.rs         budget cost from usage (stand-in table; see §6 note)
-    src/executor.rs        dial out, pin+verify orchestrator key, enforce policy, relay
+    src/executor.rs        dial out, pin+verify orchestrator key, enforce policy, relay;
+                           per-intent ring buffer + reconnect/resume/cancel (§7)
     src/orchestrator.rs    mock app: issues pairing token, signs sid, drives intents
-    src/demo.rs            wires both ends over a localhost WS and runs two intents
+    src/demo.rs            wires both ends over a localhost WS; `demo` runs three intents,
+                           `resume-demo` drops the channel mid-stream and resumes
 ```
 
 ## Run the demo (no key, no network)
@@ -38,6 +41,20 @@ You'll see: the Executor dial out; the Orchestrator sign the freshly-assigned
 dialect) each stream back in sequenced native chunks with usage metered the way
 that dialect reports it; and a `gpt-4-turbo` intent **rejected with
 `policy_model`** before the provider is contacted.
+
+## Run the resume / cancel demo (§7)
+
+```sh
+cargo run -- resume-demo
+```
+
+The Orchestrator streams an intent, reads a few chunks, then **drops the socket
+mid-stream**. The Executor's producer keeps pulling from the provider into a
+ring buffer while the channel is down; the Executor re-dials, re-pairs (the
+pinned key still matches — no second TOFU), and on `resume` **replays exactly the
+chunks the Orchestrator missed**, then finishes. A second intent is then
+**cancelled** part-way, showing the other half of §7: a dropped channel suspends,
+an explicit `cancel` aborts.
 
 ## Run the two ends separately
 
@@ -84,11 +101,14 @@ one-time token, the Ed25519 orchestrator identity (signed `sid`, TOFU pin, and a
 refusal if the key changes on reconnect), the policy engine with the §6 ordering
 and trailing-`*` globs, native-body passthrough in two dialects (OpenAI Chat
 Completions and Anthropic Messages), the streamed relay with a per-intent `seq`,
-and usage metered into budget spend the way each dialect reports it. The real
-adapters are there too (OpenAI forces `stream_options.include_usage`; Anthropic
-reads the split/cumulative usage without double-counting cache tokens; each
-attaches the key at one call site and honours its `*_BASE_URL`) — the demo just
-uses mocks so it needs no key.
+and usage metered into budget spend the way each dialect reports it. Resumption is
+real too: each intent's producer is decoupled from the connection and buffers into
+a bounded ring, so a dropped channel suspends rather than fails — the Executor
+re-dials, re-pairs against the pinned key, and replays from `resume`'s `last_seq`;
+`cancel` aborts. The real adapters are there too (OpenAI forces
+`stream_options.include_usage`; Anthropic reads the split/cumulative usage without
+double-counting cache tokens; each attaches the key at one call site and honours
+its `*_BASE_URL`) — the demo just uses mocks so it needs no key.
 
 The rest is stubbed, roughly in the order I'd reach for next:
 - **Channel E2E crypto (Noise).** The reference channel is plain WSS to the
@@ -96,8 +116,8 @@ The rest is stubbed, roughly in the order I'd reach for next:
 - **Root-key + chained op-keys.** Pinning is a single key today; the SSH-CA-style
   root→operational-key chain (so SaaS rotation/autoscale needs no re-pair) is
   designed in SPEC §3/§9 but not implemented.
-- **Resumption.** `seq` is emitted and gap-detectable, but the ring buffer +
-  `resume`/`cancel` handling (SPEC §7) isn't built; a dropped channel just ends.
+- **Resume auth + single-use tokens.** Reconnect re-pairs with the *same* token
+  (the skeleton relaxes single-use); resume isn't yet bound by a fresh signature.
 - **Pricing data.** `pricing.rs` is a tiny embedded table; the real plan is to
   vendor LiteLLM's `model_prices_and_context_window.json` and refresh it (SPEC §6).
 - **`policy_digest`** is an FNV stand-in, not `sha256`.
