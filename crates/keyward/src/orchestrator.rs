@@ -32,16 +32,26 @@ pub async fn serve(stream: TcpStream, cfg: OrchestratorConfig) -> Result<()> {
     let (mut write, mut read) = ws.split();
 
     // 1. expect hello, check the one-time pairing token.
-    let hello = wire::recv(&mut read).await?.ok_or_else(|| anyhow!("closed before hello"))?;
+    let hello = wire::recv(&mut read)
+        .await?
+        .ok_or_else(|| anyhow!("closed before hello"))?;
     let exec_name = match &hello.body {
-        Body::Hello { pairing_token, executor, .. } => {
+        Body::Hello {
+            pairing_token,
+            executor,
+            ..
+        } => {
             if pairing_token != &cfg.pairing_token {
                 let _ = wire::send(
                     &mut write,
-                    &Frame::new(None, new_mid(), Body::Error {
-                        code: "bad_request".into(),
-                        message: "pairing token rejected".into(),
-                    }),
+                    &Frame::new(
+                        None,
+                        new_mid(),
+                        Body::Error {
+                            code: "bad_request".into(),
+                            message: "pairing token rejected".into(),
+                        },
+                    ),
                 )
                 .await;
                 return Err(anyhow!("pairing token mismatch"));
@@ -56,21 +66,36 @@ pub async fn serve(stream: TcpStream, cfg: OrchestratorConfig) -> Result<()> {
     let sid = format!("kw_sess_{}", &new_mid()[..8]);
     let sig = cfg.signing.sign(sid.as_bytes());
     let vk = cfg.signing.verifying_key();
-    println!("[orchestr] signing sid with identity key  fp={}", wire::fingerprint(&vk.to_bytes()));
+    println!(
+        "[orchestr] signing sid with identity key  fp={}",
+        wire::fingerprint(&vk.to_bytes())
+    );
     wire::send(
         &mut write,
-        &Frame::new(Some(sid.clone()), new_mid(), Body::Paired {
-            orchestrator: Peer { name: cfg.name.clone(), version: None, id: Some(cfg.id.clone()) },
-            pubkey: wire::hex(&vk.to_bytes()),
-            sig: wire::hex(&sig.to_bytes()),
-        }),
+        &Frame::new(
+            Some(sid.clone()),
+            new_mid(),
+            Body::Paired {
+                orchestrator: Peer {
+                    name: cfg.name.clone(),
+                    version: None,
+                    id: Some(cfg.id.clone()),
+                },
+                pubkey: wire::hex(&vk.to_bytes()),
+                sig: wire::hex(&sig.to_bytes()),
+            },
+        ),
     )
     .await?;
 
     // 3. run scripted intents, sequentially for clear output.
     for (i, (provider, request)) in cfg.intents.into_iter().enumerate() {
         let mid = new_mid();
-        let model = request.get("model").and_then(Value::as_str).unwrap_or("?").to_string();
+        let model = request
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or("?")
+            .to_string();
         println!("\n[orchestr] --> work #{i}  provider={provider}  model={model}");
         wire::send(
             &mut write,
@@ -95,7 +120,10 @@ pub async fn serve(stream: TcpStream, cfg: OrchestratorConfig) -> Result<()> {
                 }
                 Body::WorkDone { usage, .. } => {
                     println!("[orchestr]     done  assembled={assembled:?}");
-                    println!("[orchestr]     usage in={} out={}", usage.input_tokens, usage.output_tokens);
+                    println!(
+                        "[orchestr]     usage in={} out={}",
+                        usage.input_tokens, usage.output_tokens
+                    );
                     break;
                 }
                 Body::WorkError { code, message, .. } => {
@@ -110,7 +138,13 @@ pub async fn serve(stream: TcpStream, cfg: OrchestratorConfig) -> Result<()> {
     // 4. orderly close.
     wire::send(
         &mut write,
-        &Frame::new(Some(sid), new_mid(), Body::Close { reason: "done".into() }),
+        &Frame::new(
+            Some(sid),
+            new_mid(),
+            Body::Close {
+                reason: "done".into(),
+            },
+        ),
     )
     .await?;
     Ok(())
@@ -125,7 +159,8 @@ pub async fn run_cli() -> Result<()> {
     let token = std::env::var("KEYWARD_PAIRING_TOKEN").unwrap_or_else(|_| "pt_dev_token".into());
     let provider = std::env::var("KEYWARD_PROVIDER").unwrap_or_else(|_| "mock".into());
     let model = std::env::var("KEYWARD_MODEL").unwrap_or_else(|_| "gpt-4o".into());
-    let prompt = std::env::var("KEYWARD_PROMPT").unwrap_or_else(|_| "Hello from a Keyward orchestrator.".into());
+    let prompt =
+        std::env::var("KEYWARD_PROMPT").unwrap_or_else(|_| "Hello from a Keyward orchestrator.".into());
 
     let listener = TcpListener::bind(&listen).await?;
     println!("[orchestr] listening on ws://{listen}   pairing_token={token}");
@@ -138,7 +173,10 @@ pub async fn run_cli() -> Result<()> {
         id: "orch_dev".into(),
         pairing_token: token,
         signing: SigningKey::generate(&mut OsRng),
-        intents: vec![(provider, json!({"model": model, "messages": [{"role": "user", "content": prompt}], "stream": true}))],
+        intents: vec![(
+            provider,
+            json!({"model": model, "messages": [{"role": "user", "content": prompt}], "stream": true}),
+        )],
     };
     serve(stream, cfg).await
 }
@@ -164,9 +202,15 @@ async fn expect_hello<S>(read: &mut S, token: &str) -> Result<()>
 where
     S: Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
 {
-    let hello = wire::recv(read).await?.ok_or_else(|| anyhow!("closed before hello"))?;
+    let hello = wire::recv(read)
+        .await?
+        .ok_or_else(|| anyhow!("closed before hello"))?;
     match hello.body {
-        Body::Hello { pairing_token, executor, .. } => {
+        Body::Hello {
+            pairing_token,
+            executor,
+            ..
+        } => {
             // NB: the v0 skeleton relaxes single-use tokens so the demo can re-pair
             // on reconnect with the same token. A real Orchestrator would not.
             if pairing_token != token {
@@ -189,11 +233,19 @@ where
     let vk = cfg.signing.verifying_key();
     wire::send(
         write,
-        &Frame::new(Some(sid.clone()), new_mid(), Body::Paired {
-            orchestrator: Peer { name: cfg.name.clone(), version: None, id: Some(cfg.id.clone()) },
-            pubkey: wire::hex(&vk.to_bytes()),
-            sig: wire::hex(&sig.to_bytes()),
-        }),
+        &Frame::new(
+            Some(sid.clone()),
+            new_mid(),
+            Body::Paired {
+                orchestrator: Peer {
+                    name: cfg.name.clone(),
+                    version: None,
+                    id: Some(cfg.id.clone()),
+                },
+                pubkey: wire::hex(&vk.to_bytes()),
+                sig: wire::hex(&sig.to_bytes()),
+            },
+        ),
     )
     .await?;
     Ok(sid)
@@ -214,12 +266,25 @@ pub async fn serve_resume_demo(listener: TcpListener, cfg: OrchestratorConfig) -
     let mid = new_mid();
     let req = json!({"model": "gpt-4o", "messages": [{"role": "user", "content": "Stream a sentence long enough to span many chunks so we can interrupt it midway and resume."}], "stream": true});
     println!("\n[orchestr] --> work mid={}…  model=gpt-4o", &mid[..8]);
-    wire::send(&mut w1, &Frame::new(Some(sid1.clone()), mid.clone(), Body::Work { provider: "mock".into(), request: req })).await?;
+    wire::send(
+        &mut w1,
+        &Frame::new(
+            Some(sid1.clone()),
+            mid.clone(),
+            Body::Work {
+                provider: "mock".into(),
+                request: req,
+            },
+        ),
+    )
+    .await?;
 
     let mut last_seq: i64 = -1;
     let mut got = 0;
     loop {
-        let Some(frame) = wire::recv(&mut r1).await? else { break };
+        let Some(frame) = wire::recv(&mut r1).await? else {
+            break;
+        };
         if frame.mid != mid {
             continue;
         }
@@ -255,7 +320,18 @@ pub async fn serve_resume_demo(listener: TcpListener, cfg: OrchestratorConfig) -
     let sid2 = send_paired(&mut w2, &cfg).await?;
     println!("[orchestr] executor reconnected; paired (conn 2)  sid={sid2}");
     println!("[orchestr] <-- resume mid={}…  last_seq={last_seq}", &mid[..8]);
-    wire::send(&mut w2, &Frame::new(Some(sid2.clone()), new_mid(), Body::Resume { intent_mid: mid.clone(), last_seq })).await?;
+    wire::send(
+        &mut w2,
+        &Frame::new(
+            Some(sid2.clone()),
+            new_mid(),
+            Body::Resume {
+                intent_mid: mid.clone(),
+                last_seq,
+            },
+        ),
+    )
+    .await?;
 
     let mut tail = String::new();
     loop {
@@ -273,7 +349,10 @@ pub async fn serve_resume_demo(listener: TcpListener, cfg: OrchestratorConfig) -
             }
             Body::WorkDone { usage, .. } => {
                 println!("[orchestr]     done after resume; recovered tail (seq>{last_seq}) = {tail:?}");
-                println!("[orchestr]     usage in={} out={}", usage.input_tokens, usage.output_tokens);
+                println!(
+                    "[orchestr]     usage in={} out={}",
+                    usage.input_tokens, usage.output_tokens
+                );
                 break;
             }
             Body::WorkError { code, message, .. } => {
@@ -287,11 +366,27 @@ pub async fn serve_resume_demo(listener: TcpListener, cfg: OrchestratorConfig) -
     // ---- cancel: a dropped channel suspends, an explicit cancel aborts ----
     let mid2 = new_mid();
     let req2 = json!({"model": "gpt-4o", "messages": [{"role": "user", "content": "Begin a long answer that the owner will cancel partway through."}], "stream": true});
-    println!("\n[orchestr] --> work mid={}…  model=gpt-4o (will cancel)", &mid2[..8]);
-    wire::send(&mut w2, &Frame::new(Some(sid2.clone()), mid2.clone(), Body::Work { provider: "mock".into(), request: req2 })).await?;
+    println!(
+        "\n[orchestr] --> work mid={}…  model=gpt-4o (will cancel)",
+        &mid2[..8]
+    );
+    wire::send(
+        &mut w2,
+        &Frame::new(
+            Some(sid2.clone()),
+            mid2.clone(),
+            Body::Work {
+                provider: "mock".into(),
+                request: req2,
+            },
+        ),
+    )
+    .await?;
     let mut got2 = 0;
     loop {
-        let Some(frame) = wire::recv(&mut r2).await? else { break };
+        let Some(frame) = wire::recv(&mut r2).await? else {
+            break;
+        };
         if frame.mid != mid2 {
             continue;
         }
@@ -302,7 +397,17 @@ pub async fn serve_resume_demo(listener: TcpListener, cfg: OrchestratorConfig) -
                 got2 += 1;
                 if got2 >= 2 {
                     println!("[orchestr]     >>> cancel mid={}…", &mid2[..8]);
-                    wire::send(&mut w2, &Frame::new(Some(sid2.clone()), new_mid(), Body::Cancel { intent_mid: mid2.clone() })).await?;
+                    wire::send(
+                        &mut w2,
+                        &Frame::new(
+                            Some(sid2.clone()),
+                            new_mid(),
+                            Body::Cancel {
+                                intent_mid: mid2.clone(),
+                            },
+                        ),
+                    )
+                    .await?;
                 }
             }
             Body::WorkError { code, message, .. } => {
@@ -317,6 +422,16 @@ pub async fn serve_resume_demo(listener: TcpListener, cfg: OrchestratorConfig) -
         }
     }
 
-    wire::send(&mut w2, &Frame::new(Some(sid2), new_mid(), Body::Close { reason: "resume demo done".into() })).await?;
+    wire::send(
+        &mut w2,
+        &Frame::new(
+            Some(sid2),
+            new_mid(),
+            Body::Close {
+                reason: "resume demo done".into(),
+            },
+        ),
+    )
+    .await?;
     Ok(())
 }

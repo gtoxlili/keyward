@@ -1,0 +1,47 @@
+name: Release
+
+# Tag a release (e.g. `git tag v0.0.1 && git push --tags`) to build verifiable
+# binaries: each carries a SHA-256 checksum and a signed SLSA build-provenance
+# attestation, so anyone can run `gh attestation verify <binary> -R gtoxlili/keyward`.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+  id-token: write
+  attestations: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            os: ubuntu-latest
+          - target: aarch64-apple-darwin
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+      - name: build release
+        run: cargo build --release --locked --bin keyward --target ${{ matrix.target }}
+      - name: package + checksum
+        run: |
+          out="keyward-${{ matrix.target }}"
+          cp "target/${{ matrix.target }}/release/keyward" "$out"
+          shasum -a 256 "$out" | tee "$out.sha256"
+      - name: attest build provenance
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: keyward-${{ matrix.target }}
+      - name: upload to release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            keyward-${{ matrix.target }}
+            keyward-${{ matrix.target }}.sha256

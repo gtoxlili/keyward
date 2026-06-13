@@ -58,16 +58,26 @@ pub async fn call(_model: &str, request: &Value, key: &SecretString) -> Result<m
             while let Some(pos) = buf.find("\n\n") {
                 let raw: String = buf.drain(..pos + 2).collect();
                 for line in raw.lines() {
-                    let Some(data) = line.trim_start().strip_prefix("data:") else { continue };
+                    let Some(data) = line.trim_start().strip_prefix("data:") else {
+                        continue;
+                    };
                     let data = data.trim();
                     if data == "[DONE]" {
                         let _ = tx.send(Event::Done { result: None, usage }).await;
                         return;
                     }
-                    let Ok(v) = serde_json::from_str::<Value>(data) else { continue };
+                    let Ok(v) = serde_json::from_str::<Value>(data) else {
+                        continue;
+                    };
                     if let Some(u) = v.get("usage").filter(|u| !u.is_null()) {
-                        usage.input_tokens = u.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(usage.input_tokens);
-                        usage.output_tokens = u.get("completion_tokens").and_then(Value::as_u64).unwrap_or(usage.output_tokens);
+                        usage.input_tokens = u
+                            .get("prompt_tokens")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(usage.input_tokens);
+                        usage.output_tokens = u
+                            .get("completion_tokens")
+                            .and_then(Value::as_u64)
+                            .unwrap_or(usage.output_tokens);
                     }
                     if tx.send(Event::Chunk(v)).await.is_err() {
                         return; // downstream gone — stop reading upstream (backpressure).

@@ -26,8 +26,8 @@ where
     while let Some(msg) = stream.next().await {
         match msg? {
             Message::Text(t) => {
-                let frame: Frame = serde_json::from_str(t.as_str())
-                    .map_err(|e| anyhow!("malformed frame: {e}"))?;
+                let frame: Frame =
+                    serde_json::from_str(t.as_str()).map_err(|e| anyhow!("malformed frame: {e}"))?;
                 return Ok(Some(frame));
             }
             Message::Close(_) => return Ok(None),

@@ -47,7 +47,12 @@ pub struct Frame {
 
 impl Frame {
     pub fn new(sid: Option<String>, mid: impl Into<String>, body: Body) -> Self {
-        Frame { kw: KW.to_string(), sid, mid: mid.into(), body }
+        Frame {
+            kw: KW.to_string(),
+            sid,
+            mid: mid.into(),
+            body,
+        }
     }
 }
 
@@ -277,10 +282,17 @@ mod tests {
     #[test]
     fn budget_exhausted() {
         let p = Policy {
-            budget: Some(Budget { limit_usd: 20.0, window: "month".into(), spent_usd: 0.0 }),
+            budget: Some(Budget {
+                limit_usd: 20.0,
+                window: "month".into(),
+                spent_usd: 0.0,
+            }),
             ..Default::default()
         };
-        let live = Live { spent_usd: 20.0, ..Default::default() };
+        let live = Live {
+            spent_usd: 20.0,
+            ..Default::default()
+        };
         assert_eq!(p.check("openai", "gpt-4o", "acme", live), Err(Denied::Budget));
     }
 
@@ -289,7 +301,10 @@ mod tests {
         let f = Frame::new(
             Some("kw_sess_1".into()),
             "01J",
-            Body::WorkChunk { seq: 7, delta: serde_json::json!({"x": 1}) },
+            Body::WorkChunk {
+                seq: 7,
+                delta: serde_json::json!({"x": 1}),
+            },
         );
         let s = serde_json::to_string(&f).unwrap();
         let back: Frame = serde_json::from_str(&s).unwrap();
