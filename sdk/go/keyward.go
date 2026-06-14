@@ -267,8 +267,8 @@ func buildPaired(cfg Config) (string, map[string]any) {
 	rootPub := cfg.Root.Public().(ed25519.PublicKey)
 	frame := map[string]any{
 		"kw": "0", "sid": sid, "mid": newMid(), "type": "paired",
-		"node": map[string]any{"name": cfg.Name, "id": cfg.ID},
-		"root_pubkey":  hex.EncodeToString(rootPub),
+		"node":        map[string]any{"name": cfg.Name, "id": cfg.ID},
+		"root_pubkey": hex.EncodeToString(rootPub),
 		"op": map[string]any{
 			"pubkey":    hex.EncodeToString(opPub),
 			"not_after": notAfter,
