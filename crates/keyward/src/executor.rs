@@ -191,9 +191,7 @@ pub async fn run(url: &str, pairing_token: &str, cfg: ExecutorConfig) -> Result<
         events,
     });
 
-    shared.emit(ExecutorEvent::Connecting {
-        url: url.to_string(),
-    });
+    shared.emit(ExecutorEvent::Connecting { url: url.to_string() });
 
     let mut attempt = 0u32;
     let mut backoff = 200u64;
