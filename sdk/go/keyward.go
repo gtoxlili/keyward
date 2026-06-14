@@ -1,12 +1,14 @@
-// Package keyward is the Go Orchestrator SDK for the Keyward non-custodial BYOK
-// protocol. Your app is the Orchestrator — the brain that decides what to do but
-// never holds the key. You bind a listener the Owner's Executor dials into, pair,
-// then submit work intents and stream the provider's native response back. The key
-// stays on the Executor.
+// Package keyward is the Go SDK for embedding a Keyward Node in-process — the
+// non-custodial BYOK protocol. You bind a listener the Owner's Client dials into,
+// pair, then submit work intents and stream the provider's native response back.
+// Your code decides the requests; the key stays on the Client and never reaches you.
 //
-// The wire/crypto formats here are byte-compatible with the Rust reference
-// Executor (Ed25519 SSH-CA chain: root signs `op_pubkey || not_after_le`, the
-// operational key signs the sid).
+// This is the in-process path. The zero-integration path needs no SDK at all: an
+// unaware app just points its OpenAI base URL at a standalone `keyward node`.
+//
+// The wire/crypto formats here are byte-compatible with the Rust reference Client
+// (Ed25519 SSH-CA chain: root signs `op_pubkey || not_after_le`, the operational
+// key signs the sid).
 package keyward
 
 import (
@@ -52,15 +54,15 @@ type Event struct {
 	Err   string          // Error
 }
 
-// Config is the orchestrator configuration.
+// Config is the node configuration.
 type Config struct {
-	Name         string // app name, sent to the Executor
-	ID           string // stable orchestrator id
-	PairingToken string // one-time token the Owner pastes into their Executor
+	Name         string // app name, sent to the Client
+	ID           string // stable node id
+	PairingToken string // one-time token the Owner pastes into their Client
 	Root         ed25519.PrivateKey
-	// AuthorizedExecutors, if non-nil, is an allow-list of Executor identity
-	// pubkeys (hex); nil accepts any Executor that proves possession of its key.
-	AuthorizedExecutors []string
+	// AuthorizedClients, if non-nil, is an allow-list of Client identity
+	// pubkeys (hex); nil accepts any Client that proves possession of its key.
+	AuthorizedClients []string
 }
 
 // NewConfig builds a Config with a freshly generated root identity.
@@ -72,13 +74,13 @@ func NewConfig(name, id, pairingToken string) Config {
 	return Config{Name: name, ID: id, PairingToken: pairingToken, Root: priv}
 }
 
-// RootFingerprint is this orchestrator's root fingerprint — show it to the Owner
+// RootFingerprint is this node's root fingerprint — show it to the Owner
 // for out-of-band confirmation when pairing.
 func (c Config) RootFingerprint() string {
 	return fingerprint(c.Root.Public().(ed25519.PublicKey))
 }
 
-// Session is a paired connection with one Executor.
+// Session is a paired connection with one Client.
 type Session struct {
 	conn    *websocket.Conn
 	sid     string
@@ -87,8 +89,8 @@ type Session struct {
 	writeMu sync.Mutex
 }
 
-// ServeOne binds a WebSocket server at addr, accepts ONE Executor dialing in,
-// authenticates and pairs it, and returns the Session. (v0: one Executor.)
+// ServeOne binds a WebSocket server at addr, accepts ONE Client dialing in,
+// authenticates and pairs it, and returns the Session. (v0: one Client.)
 func ServeOne(addr string, cfg Config) (*Session, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -114,7 +116,7 @@ func ServeOne(addr string, cfg Config) (*Session, error) {
 			done(result{nil, err})
 			return
 		}
-		if err := authenticateExecutor(hello, cfg); err != nil {
+		if err := authenticateClient(hello, cfg); err != nil {
 			_ = writeFrame(ctx, c, map[string]any{"kw": "0", "mid": newMid(), "type": "error", "code": "bad_request", "message": err.Error()})
 			c.Close(websocket.StatusPolicyViolation, "auth failed")
 			done(result{nil, err})
@@ -161,7 +163,7 @@ func (s *Session) Submit(provider string, request json.RawMessage) (<-chan Event
 	return out, nil
 }
 
-// Close ends the session and disconnects the Executor.
+// Close ends the session and disconnects the Client.
 func (s *Session) Close() {
 	s.conn.Close(websocket.StatusNormalClosure, "")
 }
@@ -176,7 +178,7 @@ func (s *Session) recvLoop(ctx context.Context) {
 	}
 	s.mu.Lock()
 	for _, ch := range s.pending {
-		ch <- Event{Kind: Error, Err: "executor disconnected"}
+		ch <- Event{Kind: Error, Err: "client disconnected"}
 		close(ch)
 	}
 	s.pending = map[string]chan Event{}
@@ -251,7 +253,7 @@ func writeFrame(ctx context.Context, c *websocket.Conn, v any) error {
 	return c.Write(ctx, websocket.MessageText, data)
 }
 
-// --- crypto (byte-compatible with the Rust executor's verifier) ---
+// --- crypto (byte-compatible with the Rust client's verifier) ---
 
 func buildPaired(cfg Config) (string, map[string]any) {
 	sid := "kw_sess_" + randHex(4)
@@ -265,7 +267,7 @@ func buildPaired(cfg Config) (string, map[string]any) {
 	rootPub := cfg.Root.Public().(ed25519.PublicKey)
 	frame := map[string]any{
 		"kw": "0", "sid": sid, "mid": newMid(), "type": "paired",
-		"orchestrator": map[string]any{"name": cfg.Name, "id": cfg.ID},
+		"node": map[string]any{"name": cfg.Name, "id": cfg.ID},
 		"root_pubkey":  hex.EncodeToString(rootPub),
 		"op": map[string]any{
 			"pubkey":    hex.EncodeToString(opPub),
@@ -286,7 +288,7 @@ func certMsg(opPubkey ed25519.PublicKey, notAfter int64) []byte {
 	return append(b, le...)
 }
 
-func authenticateExecutor(f frame, cfg Config) error {
+func authenticateClient(f frame, cfg Config) error {
 	if f.Type != "hello" {
 		return errors.New("expected hello")
 	}
@@ -296,27 +298,27 @@ func authenticateExecutor(f frame, cfg Config) error {
 	if f.Pubkey != "" && f.Sig != "" {
 		pub, err := hex.DecodeString(f.Pubkey)
 		if err != nil || len(pub) != ed25519.PublicKeySize {
-			return errors.New("bad executor pubkey")
+			return errors.New("bad client pubkey")
 		}
 		sig, err := hex.DecodeString(f.Sig)
 		if err != nil || len(sig) != ed25519.SignatureSize {
-			return errors.New("bad executor signature")
+			return errors.New("bad client signature")
 		}
 		if !ed25519.Verify(ed25519.PublicKey(pub), []byte(cfg.PairingToken), sig) {
-			return errors.New("executor identity signature invalid")
+			return errors.New("client identity signature invalid")
 		}
-	} else if cfg.AuthorizedExecutors != nil {
-		return errors.New("executor identity required but not provided")
+	} else if cfg.AuthorizedClients != nil {
+		return errors.New("client identity required but not provided")
 	}
-	if cfg.AuthorizedExecutors != nil {
+	if cfg.AuthorizedClients != nil {
 		ok := false
-		for _, a := range cfg.AuthorizedExecutors {
+		for _, a := range cfg.AuthorizedClients {
 			if a == f.Pubkey {
 				ok = true
 			}
 		}
 		if !ok {
-			return errors.New("executor not authorized")
+			return errors.New("client not authorized")
 		}
 	}
 	return nil

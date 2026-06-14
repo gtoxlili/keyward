@@ -1,10 +1,10 @@
-// Minimal Orchestrator using the Go SDK. Run it, then dial a Rust Executor in:
+// Minimal Node using the Go SDK. Run it, then dial a Rust Client in:
 //
 //	go run ./example
 //	# then, in another shell:
-//	KEYWARD_ORCH_URL=ws://127.0.0.1:8800 KEYWARD_PAIRING_TOKEN=pt_go keyward executor
+//	KEYWARD_NODE_URL=ws://127.0.0.1:8800 KEYWARD_PAIRING_TOKEN=pt_go keyward client
 //
-// Set PROVIDER=openai (and build the executor with --features openai + a key) for a
+// Set PROVIDER=openai (and build the client with --features openai + a key) for a
 // real call.
 package main
 
@@ -17,15 +17,15 @@ import (
 )
 
 func main() {
-	cfg := keyward.NewConfig("sdk-go-example", "orch_go", "pt_go")
-	fmt.Printf("orchestrator on ws://127.0.0.1:8800  (root fingerprint %s)\n", cfg.RootFingerprint())
-	fmt.Println("dial an executor:  KEYWARD_ORCH_URL=ws://127.0.0.1:8800 KEYWARD_PAIRING_TOKEN=pt_go keyward executor")
+	cfg := keyward.NewConfig("sdk-go-example", "node_go", "pt_go")
+	fmt.Printf("node on ws://127.0.0.1:8800  (root fingerprint %s)\n", cfg.RootFingerprint())
+	fmt.Println("dial a client:  KEYWARD_NODE_URL=ws://127.0.0.1:8800 KEYWARD_PAIRING_TOKEN=pt_go keyward client")
 
 	session, err := keyward.ServeOne("127.0.0.1:8800", cfg)
 	if err != nil {
 		panic(err)
 	}
-	fmt.Println("executor paired — sending a work intent…")
+	fmt.Println("client paired — sending a work intent…")
 
 	provider := os.Getenv("PROVIDER")
 	if provider == "" {
