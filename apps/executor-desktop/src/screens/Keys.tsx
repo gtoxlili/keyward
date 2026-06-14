@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
+import { clsx } from "clsx";
 import { api } from "../lib/api";
 import { useApp } from "../lib/store";
 import { useI18n, fill } from "../i18n";
+import * as s from "../styles/ui.css";
 
 export function Keys() {
   const { d } = useI18n();
@@ -14,10 +16,10 @@ export function Keys() {
 
   const refresh = async (list: string[]) => {
     try {
-      const s = await api.keyStatus(list);
+      const st = await api.keyStatus(list);
       setPresent((prev) => ({
         ...prev,
-        ...Object.fromEntries(s.map((x) => [x.provider, x.present])),
+        ...Object.fromEntries(st.map((x) => [x.provider, x.present])),
       }));
     } catch {
       /* keychain unavailable — leave as unknown */
@@ -61,30 +63,30 @@ export function Keys() {
   };
 
   return (
-    <div className="reveal">
-      <div className="page-head">
+    <div className={s.reveal}>
+      <div className={s.pageHead}>
         <h1>{d.keys.title}</h1>
         <p>{d.keys.subtitle}</p>
       </div>
 
-      <div className="card">
+      <div className={s.card({})}>
         {providers.map((p) => (
-          <div className="row" key={p}>
-            <div className="row__main">
-              <b className="mono">{p}</b>
+          <div className={s.row} key={p}>
+            <div className={s.rowMain}>
+              <b className={s.mono}>{p}</b>
               <small>{present[p] ? d.keys.stored : d.keys.notStored}</small>
             </div>
             {present[p] ? (
               <>
-                <span className="tag tag--ok">{d.keys.stored}</span>
-                <button className="btn btn--ghost btn--sm btn--danger" onClick={() => remove(p)}>
+                <span className={s.tag({ tone: "ok" })}>{d.keys.stored}</span>
+                <button className={s.btn({ tone: "danger", size: "sm" })} onClick={() => remove(p)}>
                   {d.common.remove}
                 </button>
               </>
             ) : (
-              <div className="input-row" style={{ flex: 1, maxWidth: 440 }}>
+              <div className={s.inputRow} style={{ flex: 1, maxWidth: 440 }}>
                 <input
-                  className="input mono"
+                  className={clsx(s.input, s.mono)}
                   type="password"
                   placeholder={fill(d.keys.placeholder, { provider: p })}
                   value={drafts[p] ?? ""}
@@ -92,7 +94,7 @@ export function Keys() {
                   onKeyDown={(e) => e.key === "Enter" && store(p)}
                 />
                 <button
-                  className="btn btn--sm"
+                  className={s.btn({ size: "sm" })}
                   disabled={!(drafts[p] ?? "").trim()}
                   onClick={() => store(p)}
                 >
@@ -103,16 +105,16 @@ export function Keys() {
           </div>
         ))}
 
-        <div className="row">
-          <div className="input-row" style={{ flex: 1, maxWidth: 440 }}>
+        <div className={s.row}>
+          <div className={s.inputRow} style={{ flex: 1, maxWidth: 440 }}>
             <input
-              className="input mono"
+              className={clsx(s.input, s.mono)}
               placeholder={d.keys.customName}
               value={custom}
               onChange={(e) => setCustom(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && addCustom()}
             />
-            <button className="btn btn--sm btn--ghost" onClick={addCustom}>
+            <button className={s.btn({ tone: "ghost", size: "sm" })} onClick={addCustom}>
               {d.keys.custom}
             </button>
           </div>

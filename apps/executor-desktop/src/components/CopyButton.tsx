@@ -1,13 +1,14 @@
 import { useState } from "react";
-import { IconCopy, IconCheck } from "./icons";
+import { IconCheck, IconCopy } from "./icons";
 import { useI18n } from "../i18n";
+import * as s from "../styles/ui.css";
 
 export function CopyButton({ value, label }: { value: string; label?: string }) {
   const { d } = useI18n();
   const [done, setDone] = useState(false);
   return (
     <button
-      className="iconbtn"
+      className={s.iconbtn}
       title={d.common.copy}
       onClick={async () => {
         try {

@@ -36,6 +36,7 @@ wss:// orchestrators are supported).
 
 ## Stack
 
-Tauri 2 (Rust backend) · React 19 + TypeScript + Vite · hand-written CSS design system ·
-CSS-only motion · fonts vendored via `@fontsource` (offline). The backend depends on the
-workspace `keyward` crate at `../../crates/keyward`.
+Tauri 2 (Rust backend) · React 19 + TypeScript + Vite · **vanilla-extract** (zero-runtime
+CSS-in-TS) + the **React Compiler** · lightningcss minification · CSS-only motion · fonts
+vendored via `@fontsource` (offline). The backend depends on the workspace `keyward` crate
+at `../../crates/keyward`.

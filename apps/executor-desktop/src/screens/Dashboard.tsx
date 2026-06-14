@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useApp, deriveStats, type LogEntry } from "../lib/store";
 import { useI18n, fill, type Dict } from "../i18n";
 import { IconArrow } from "../components/icons";
+import * as s from "../styles/ui.css";
 
 function eventText(e: LogEntry, d: Dict): { msg: string; meta: string } {
   switch (e.kind) {
@@ -41,48 +42,48 @@ export function Dashboard() {
   const ratePct = rpm ? Math.min(100, (stats.rpmUsed / rpm) * 100) : 0;
 
   return (
-    <div className="reveal">
-      <div className="page-head">
+    <div className={s.reveal}>
+      <div className={s.pageHead}>
         <h1>{d.dashboard.title}</h1>
         <p>{d.dashboard.subtitle}</p>
       </div>
 
-      <div className="routing" data-live={live} style={{ marginBottom: 16 }}>
-        <div className="routing__node">
+      <div className={s.routing} data-live={live} style={{ marginBottom: 16 }}>
+        <div className={s.routingNode({})}>
           <b>{d.dashboard.orchestrator}</b>
           <small>{stats.orchestrator ?? d.dashboard.orchestratorSub}</small>
-          <span className="node-badge">
-            <i className="dot" />
+          <span className={s.nodeBadge({})}>
+            <i className={s.nodeBadgeDot} />
             {stats.orchestrator ? d.status.connected : d.dashboard.notPaired}
           </span>
         </div>
-        <div className="routing__wire">
-          <span className="glyph">
+        <div className={s.routingWire}>
+          <span className={s.routingGlyph}>
             <IconArrow size={18} />
           </span>
         </div>
-        <div className="routing__node right">
+        <div className={s.routingNode({ right: true })}>
           <b>{d.dashboard.you}</b>
           <small>{d.dashboard.youSub}</small>
-          <span className="node-badge you">
-            <i className="dot" />
+          <span className={s.nodeBadge({ you: true })}>
+            <i className={s.nodeBadgeDot} />
             {d.dashboard.routes}
           </span>
         </div>
       </div>
 
-      <div className="grid grid--3" style={{ marginBottom: 16 }}>
-        <div className="card">
-          <div className="stat">
-            <span className="stat__label">{d.dashboard.sessionSpend}</span>
-            <span className="stat__value mono">
-              <span className="unit">$</span>
+      <div className={s.grid({ cols: 3 })} style={{ marginBottom: 16 }}>
+        <div className={s.card({})}>
+          <div className={s.stat}>
+            <span className={s.statLabel}>{d.dashboard.sessionSpend}</span>
+            <span className={s.statValue}>
+              <span className={s.statUnit}>$</span>
               {stats.spentUsd.toFixed(4)}
             </span>
-            <div className="bar">
-              <i style={{ width: `${spendPct}%` }} />
+            <div className={s.bar}>
+              <i className={s.barFill} style={{ width: `${spendPct}%` }} />
             </div>
-            <span className="stat__sub">
+            <span className={s.statSub}>
               {budget
                 ? fill(d.dashboard.perBudget, { budget: `$${budget}` })
                 : d.dashboard.noBudget}
@@ -90,52 +91,52 @@ export function Dashboard() {
           </div>
         </div>
 
-        <div className="card">
-          <div className="stat">
-            <span className="stat__label">{d.dashboard.requests}</span>
-            <span className="stat__value mono">{stats.served}</span>
-            <div className="bar">
-              <i style={{ width: stats.inFlight ? "100%" : "0%", opacity: 0.5 }} />
+        <div className={s.card({})}>
+          <div className={s.stat}>
+            <span className={s.statLabel}>{d.dashboard.requests}</span>
+            <span className={s.statValue}>{stats.served}</span>
+            <div className={s.bar}>
+              <i className={s.barFill} style={{ width: stats.inFlight ? "100%" : "0%", opacity: 0.5 }} />
             </div>
-            <span className="stat__sub">{fill(d.dashboard.inFlight, { n: stats.inFlight })}</span>
+            <span className={s.statSub}>{fill(d.dashboard.inFlight, { n: stats.inFlight })}</span>
           </div>
         </div>
 
-        <div className="card">
-          <div className="stat">
-            <span className="stat__label">{d.dashboard.rate}</span>
-            <span className="stat__value mono">
+        <div className={s.card({})}>
+          <div className={s.stat}>
+            <span className={s.statLabel}>{d.dashboard.rate}</span>
+            <span className={s.statValue}>
               {stats.rpmUsed}
-              <span className="unit">rpm</span>
+              <span className={s.statUnit}>rpm</span>
             </span>
-            <div className="bar">
-              <i style={{ width: `${ratePct}%` }} />
+            <div className={s.bar}>
+              <i className={s.barFill} style={{ width: `${ratePct}%` }} />
             </div>
-            <span className="stat__sub">
+            <span className={s.statSub}>
               {rpm ? fill(d.dashboard.rpmCap, { rpm }) : d.dashboard.noRate}
             </span>
           </div>
         </div>
       </div>
 
-      <div className="card">
-        <div className="card__title">{d.dashboard.activity}</div>
+      <div className={s.card({})}>
+        <div className={s.cardTitle}>{d.dashboard.activity}</div>
         {events.length === 0 ? (
-          <div className="empty">{d.dashboard.noActivity}</div>
+          <div className={s.empty}>{d.dashboard.noActivity}</div>
         ) : (
-          <div className="log">
+          <div className={s.log}>
             {events.slice(0, 40).map((e) => {
               const { msg, meta } = eventText(e, d);
               return (
-                <div className="log__row" key={e.id}>
-                  <span className="log__time">
+                <div className={s.logRow} key={e.id}>
+                  <span className={s.logTime}>
                     {new Date(e.at).toLocaleTimeString([], { hour12: false })}
                   </span>
-                  <span className="log__kind" data-k={e.kind}>
+                  <span className={s.logKind} data-k={e.kind}>
                     {d.events[e.kind]}
                   </span>
-                  <span className="log__msg">{msg}</span>
-                  <span className="log__meta mono">{meta}</span>
+                  <span className={s.logMsg}>{msg}</span>
+                  <span className={s.logMeta}>{meta}</span>
                 </div>
               );
             })}

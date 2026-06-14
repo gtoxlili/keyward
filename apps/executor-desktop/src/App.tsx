@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { clsx } from "clsx";
 import { api, type ExecutorEvent, type Identity, type Settings } from "./lib/api";
 import { AppContext, type AppState, type LogEntry, type Status } from "./lib/store";
 import { I18nContext, dicts, type Lang } from "./i18n";
@@ -17,6 +18,7 @@ import { Keys } from "./screens/Keys";
 import { Policy } from "./screens/Policy";
 import { Settings as SettingsScreen } from "./screens/Settings";
 import logo from "./assets/logo.png";
+import * as s from "./styles/ui.css";
 
 type ScreenKey = "dashboard" | "pairing" | "keys" | "policy" | "settings";
 
@@ -40,7 +42,6 @@ export default function App() {
   const everPaired = useRef(false);
   const counter = useRef(0);
 
-  // First run: load persisted settings + identity, default language to the OS locale.
   useEffect(() => {
     (async () => {
       const saved = await api.loadSettings().catch(() => null);
@@ -50,15 +51,13 @@ export default function App() {
     })();
   }, []);
 
-  // Persist + apply theme whenever settings change.
   useEffect(() => {
     if (!settings) return;
     void api.saveSettings(settings).catch(() => undefined);
     document.documentElement.dataset.theme = settings.theme;
   }, [settings]);
 
-  const update = (patch: Partial<Settings>) =>
-    setSettings((s) => (s ? { ...s, ...patch } : s));
+  const update = (patch: Partial<Settings>) => setSettings((v) => (v ? { ...v, ...patch } : v));
 
   const toast = (msg: string, tone?: "ok" | "bad") => {
     const id = ++counter.current;
@@ -118,7 +117,7 @@ export default function App() {
     setStatus("idle");
   };
 
-  if (!settings) return <div className="app" />;
+  if (!settings) return <div className={s.app} />;
 
   const d = dicts[settings.lang];
   const i18n = { lang: settings.lang, setLang: (l: Lang) => update({ lang: l }), d };
@@ -134,34 +133,36 @@ export default function App() {
 
   const pillState = status === "idle" ? undefined : status;
   const pillText =
-    status === "idle" ? d.status.disconnected : d.status[status as "connecting" | "connected" | "error"];
+    status === "idle"
+      ? d.status.disconnected
+      : d.status[status as "connecting" | "connected" | "error"];
 
   return (
     <I18nContext.Provider value={i18n}>
       <AppContext.Provider value={appState}>
-        <div className="app">
-          <header className="topbar" data-tauri-drag-region>
-            <div className="topbar__brand">
-              <img src={logo} alt="Keyward" />
-              <span className="topbar__name">
-                Keyward <span>{d.brand.tag}</span>
+        <div className={s.app}>
+          <header className={s.topbar} data-tauri-drag-region>
+            <div className={s.topbarBrand}>
+              <img className={s.topbarLogo} src={logo} alt="Keyward" />
+              <span className={s.topbarName}>
+                Keyward <span className={s.topbarNameSub}>{d.brand.tag}</span>
               </span>
             </div>
-            <div className="topbar__spacer" data-tauri-drag-region />
-            <div className="topbar__tools">
-              <span className="pill" data-state={pillState}>
-                <span className="pill__dot" />
+            <div className={s.topbarSpacer} data-tauri-drag-region />
+            <div className={s.topbarTools}>
+              <span className={s.pill} data-state={pillState}>
+                <span className={s.pillDot} />
                 {pillText}
               </span>
               <button
-                className="iconbtn"
+                className={s.iconbtn}
                 title={settings.lang === "en" ? "中文" : "English"}
                 onClick={() => update({ lang: settings.lang === "en" ? "zh" : "en" })}
               >
                 {settings.lang === "en" ? "中" : "EN"}
               </button>
               <button
-                className="iconbtn"
+                className={s.iconbtn}
                 title={d.settings.theme}
                 onClick={() => update({ theme: settings.theme === "dark" ? "light" : "dark" })}
               >
@@ -170,23 +171,24 @@ export default function App() {
             </div>
           </header>
 
-          <div className="shell">
-            <aside className="sidebar">
-              <nav className="nav">
+          <div className={s.shell}>
+            <aside className={s.sidebar}>
+              <nav className={s.nav}>
                 {nav.map((n) => (
                   <button
                     key={n.key}
-                    className={`nav__item${screen === n.key ? " active" : ""}`}
+                    className={s.navItem({ active: screen === n.key })}
                     onClick={() => setScreen(n.key)}
                   >
                     {n.icon}
-                    <span className="nav__label">{n.label}</span>
+                    <span className={s.navLabel}>{n.label}</span>
                   </button>
                 ))}
               </nav>
-              <div className="sidebar__foot">
-                <div
-                  className="idchip"
+              <div className={s.sidebarFoot}>
+                <button
+                  type="button"
+                  className={s.idchip}
                   title={d.pairing.fingerprint}
                   onClick={() => {
                     if (identity) {
@@ -195,16 +197,18 @@ export default function App() {
                     }
                   }}
                 >
-                  <span className="idchip__dot" />
-                  <span className="idchip__txt">
-                    <b>{d.pairing.identity}</b>
-                    <span className="mono">{identity?.fingerprint ?? "…"}</span>
+                  <span className={s.idchipDot} />
+                  <span className={s.idchipTxt}>
+                    <b className={s.idchipLabel}>{d.pairing.identity}</b>
+                    <span className={clsx(s.idchipValue, s.mono)}>
+                      {identity?.fingerprint ?? "…"}
+                    </span>
                   </span>
-                </div>
+                </button>
               </div>
             </aside>
 
-            <main className="content">
+            <main className={s.content}>
               {screen === "dashboard" && <Dashboard />}
               {screen === "pairing" && <Pairing />}
               {screen === "keys" && <Keys />}
@@ -213,9 +217,9 @@ export default function App() {
             </main>
           </div>
 
-          <div className="toasts">
+          <div className={s.toasts}>
             {toasts.map((t) => (
-              <div className="toast" data-tone={t.tone} key={t.id}>
+              <div className={s.toast({ tone: t.tone })} key={t.id}>
                 {t.msg}
               </div>
             ))}

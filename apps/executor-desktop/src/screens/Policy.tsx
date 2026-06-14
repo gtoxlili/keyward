@@ -1,5 +1,7 @@
+import { clsx } from "clsx";
 import { useApp } from "../lib/store";
 import { useI18n } from "../i18n";
+import * as s from "../styles/ui.css";
 
 const KNOWN = ["mock", "openai", "openai-responses", "anthropic"];
 
@@ -20,37 +22,37 @@ export function Policy() {
   };
 
   return (
-    <div className="reveal">
-      <div className="page-head">
+    <div className={s.reveal}>
+      <div className={s.pageHead}>
         <h1>{d.policy.title}</h1>
         <p>{d.policy.subtitle}</p>
       </div>
 
-      <div className="grid grid--2">
-        <div className="card card--pad-lg">
-          <div className="card__title">{d.policy.providers}</div>
+      <div className={s.grid({ cols: 2 })}>
+        <div className={s.card({ pad: "lg" })}>
+          <div className={s.cardTitle}>{d.policy.providers}</div>
           <div>
             {KNOWN.map((p) => (
-              <label className="checkline" key={p}>
+              <label className={s.checkline} key={p}>
                 <input
                   type="checkbox"
                   checked={settings.providers.includes(p)}
                   onChange={() => toggle(p)}
                 />
-                <span className="mono">{p}</span>
+                <span className={s.mono}>{p}</span>
               </label>
             ))}
           </div>
-          <span className="hint" style={{ marginTop: 8, display: "block" }}>
+          <span className={s.hint} style={{ marginTop: 8, display: "block" }}>
             {d.policy.providersHint}
           </span>
         </div>
 
-        <div className="card card--pad-lg">
-          <div className="field">
-            <label>{d.policy.budget} · USD</label>
+        <div className={s.card({ pad: "lg" })}>
+          <div className={s.field}>
+            <label className={s.fieldLabel}>{d.policy.budget} · USD</label>
             <input
-              className="input mono"
+              className={clsx(s.input, s.mono)}
               type="number"
               min="0"
               step="1"
@@ -59,13 +61,13 @@ export function Policy() {
               value={settings.budgetUsd ?? ""}
               onChange={(e) => update({ budgetUsd: numOrNull(e.target.value) })}
             />
-            <span className="hint">{d.policy.budgetHint}</span>
+            <span className={s.hint}>{d.policy.budgetHint}</span>
           </div>
 
-          <div className="field">
-            <label>{d.policy.rate} · rpm</label>
+          <div className={s.field}>
+            <label className={s.fieldLabel}>{d.policy.rate} · rpm</label>
             <input
-              className="input mono"
+              className={clsx(s.input, s.mono)}
               type="number"
               min="0"
               step="1"
@@ -74,10 +76,10 @@ export function Policy() {
               value={settings.rpm ?? ""}
               onChange={(e) => update({ rpm: numOrNull(e.target.value) })}
             />
-            <span className="hint">{d.policy.rateHint}</span>
+            <span className={s.hint}>{d.policy.rateHint}</span>
           </div>
 
-          <span className="hint" style={{ color: "var(--brand-2)" }}>
+          <span className={s.hint} style={{ color: "var(--kw-color-brand2)" }}>
             {d.policy.appliesNext}
           </span>
         </div>
