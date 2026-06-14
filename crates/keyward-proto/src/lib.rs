@@ -151,6 +151,11 @@ pub enum Body {
     Close { reason: String },
     /// Envelope-level fault (§8). Never closes the channel by itself.
     Error { code: String, message: String },
+    /// Opaque end-to-end ciphertext for the trustless-broker case (§9/§10): the broker
+    /// relays it by `mid` without decrypting. Requester→Executor it carries the sealed
+    /// work (`hex(ephemeral_pubkey) ‖ sealed`); Executor→Requester, the sealed response
+    /// chunks/terminal. The plaintext shape is the seal layer's business, not the wire's.
+    Sealed { blob: String },
 }
 
 // ---------------------------------------------------------------------------

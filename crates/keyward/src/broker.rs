@@ -41,6 +41,8 @@ enum BrokerEvent {
     Chunk(Value),
     Done(Usage),
     Error(String),
+    /// Opaque ciphertext relayed verbatim for the sealed path (§9) — never decrypted.
+    Sealed(String),
 }
 
 /// One paired Executor connection, addressed by its routing token.
@@ -48,7 +50,6 @@ struct ExecutorConn {
     out: mpsc::Sender<Frame>,
     sid: Option<String>,
     pending: Mutex<HashMap<String, mpsc::Sender<BrokerEvent>>>,
-    peer: String,
 }
 
 impl ExecutorConn {
@@ -66,6 +67,18 @@ impl ExecutorConn {
                     request,
                 },
             ))
+            .await;
+        rx
+    }
+
+    /// Submit an opaque sealed work blob (§9) — the broker never inspects it.
+    async fn submit_sealed(&self, blob: String) -> mpsc::Receiver<BrokerEvent> {
+        let mid = new_mid();
+        let (tx, rx) = mpsc::channel(64);
+        self.pending.lock().await.insert(mid.clone(), tx);
+        let _ = self
+            .out
+            .send(Frame::new(self.sid.clone(), mid, Body::Sealed { blob }))
             .await;
         rx
     }
@@ -126,6 +139,9 @@ pub async fn run_cli() -> Result<()> {
         .route("/v1/chat/completions", post(chat_completions))
         .route("/v1/responses", post(responses))
         .route("/v1/messages", post(messages))
+        // Sealed relay (§9): the requester-side shim posts ciphertext, the broker forwards
+        // it blind and streams back the sealed reply.
+        .route("/kw/sealed", post(sealed_relay))
         .with_state(broker);
     let http = TcpListener::bind(&http_listen).await?;
     println!("[broker] OpenAI-compatible endpoint on http://{http_listen}");
@@ -180,7 +196,6 @@ async fn handle_executor(
         out,
         sid: Some(sid),
         pending: Mutex::new(HashMap::new()),
-        peer: peer.clone(),
     });
 
     let replaced = broker
@@ -229,6 +244,7 @@ async fn route_frame(conn: &ExecutorConn, frame: Frame) {
         Body::WorkChunk { delta, .. } => BrokerEvent::Chunk(delta),
         Body::WorkDone { usage, .. } => BrokerEvent::Done(usage),
         Body::WorkError { code, message, .. } => BrokerEvent::Error(format!("{code}: {message}")),
+        Body::Sealed { blob } => BrokerEvent::Sealed(blob),
         _ => return,
     };
     let terminal = matches!(ev, BrokerEvent::Done(_) | BrokerEvent::Error(_));
@@ -269,23 +285,58 @@ fn route_token_of(headers: &HeaderMap) -> Option<String> {
         .map(|s| s.trim().to_string())
 }
 
+/// The Executor connection for the request's routing token, or a 401.
+fn no_route() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(json!({ "error": {
+            "message": "no executor for this routing token — pair one, and use its route token as the API key",
+            "type": "keyward_unknown_route"
+        } })),
+    )
+        .into_response()
+}
+
+async fn conn_for(b: &Broker, headers: &HeaderMap) -> Option<Arc<ExecutorConn>> {
+    let token = route_token_of(headers).filter(|t| !t.is_empty())?;
+    b.routes.lock().await.get(&token).cloned()
+}
+
+/// Sealed relay (§9): the shim posts an opaque ciphertext blob with its routing token;
+/// the broker forwards it to the matching Executor and streams the sealed reply back —
+/// never decrypting. Content stays end-to-end encrypted; only metadata terminals
+/// (done/error) are cleartext.
+async fn sealed_relay(State(b): State<Arc<Broker>>, headers: HeaderMap, body: String) -> Response {
+    let Some(conn) = conn_for(&b, &headers).await else {
+        return no_route();
+    };
+    println!(
+        "[broker] sealed relay: {} hex chars of ciphertext, forwarded blind (prefix {}…)",
+        body.len(),
+        &body[..body.len().min(32)]
+    );
+    let rx = conn.submit_sealed(body).await;
+    let stream = futures_util::stream::unfold((rx, false), |(mut rx, finished)| async move {
+        if finished {
+            return None;
+        }
+        match rx.recv().await {
+            Some(BrokerEvent::Sealed(blob)) => Some((
+                Ok::<_, std::convert::Infallible>(Event::default().data(blob)),
+                (rx, false),
+            )),
+            Some(BrokerEvent::Done(_)) => Some((Ok(Event::default().data("[DONE]")), (rx, true))),
+            Some(BrokerEvent::Error(e)) => Some((Ok(Event::default().event("error").data(e)), (rx, true))),
+            Some(BrokerEvent::Chunk(_)) | None => None,
+        }
+    });
+    Sse::new(stream).into_response()
+}
+
 async fn relay(b: Arc<Broker>, headers: &HeaderMap, provider: &str, body: Value) -> Response {
-    let token = route_token_of(headers).filter(|t| !t.is_empty());
-    let conn = match &token {
-        Some(t) => b.routes.lock().await.get(t).cloned(),
-        None => None,
+    let Some(conn) = conn_for(&b, headers).await else {
+        return no_route();
     };
-    let Some(conn) = conn else {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(json!({ "error": {
-                "message": "no executor for this routing token — pair one, and use its route token as the API key",
-                "type": "keyward_unknown_route"
-            } })),
-        )
-            .into_response();
-    };
-    let _ = &conn.peer; // (held for logging symmetry)
 
     let streaming = body.get("stream").and_then(Value::as_bool).unwrap_or(false);
     let model = body
@@ -309,7 +360,7 @@ async fn relay(b: Arc<Broker>, headers: &HeaderMap, provider: &str, body: Value)
                 Some(BrokerEvent::Error(e)) => {
                     Some((Ok(Event::default().event("error").data(e)), (rx, true)))
                 }
-                None => None,
+                Some(BrokerEvent::Sealed(_)) | None => None,
             }
         });
         Sse::new(stream).into_response()
@@ -331,6 +382,7 @@ async fn relay(b: Arc<Broker>, headers: &HeaderMap, provider: &str, body: Value)
                     )
                         .into_response();
                 }
+                BrokerEvent::Sealed(_) => {}
             }
         }
         Json(json!({

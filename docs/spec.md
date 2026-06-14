@@ -282,10 +282,14 @@ Custody stops the key from leaking; **policy stops it from being abused.** Both 
   custodial/TEE model, out of scope here).
 - **Channel encryption vs. a relay.** A direct dial-out to the Orchestrator over TLS gets
   confidentiality and integrity from the transport (§1). If an **untrusted relay** is interposed —
-  one that only stores and forwards opaque frames — TLS to the relay is not enough; the Executor
-  and Orchestrator SHOULD run an inner mutually-authenticated encrypted layer (a Noise handshake
-  keyed by the §3 identities) so the relay sees only ciphertext. A concrete Noise profile is an
-  open question (below).
+  one that only stores and forwards opaque frames, e.g. the blind broker of §10 — TLS to the relay
+  is not enough; the Executor and the requester run an inner encrypted layer **keyed by the §3
+  identities** so the relay sees only ciphertext. The implemented profile is non-interactive ECIES:
+  a fresh ephemeral X25519 ↔ the Executor's static X25519 (both mapped from the Ed25519 identities)
+  feeding ChaCha20-Poly1305; the request carries the ephemeral pubkey and the derived box encrypts
+  the response stream too (the `Sealed` frame; the relay forwards it by `mid`). It fits the
+  request/response shape without relaying a multi-message handshake, but gives no per-message
+  forward secrecy — an interactive Noise XX profile is the FS upgrade (below).
 - **Payloads are not protected.** Prompts and completions are visible to the Orchestrator by
   construction. Keyward is about custody of the *credential*, not confidentiality of the *content*.
   Do not rely on it for the latter.
@@ -322,9 +326,11 @@ the routing token plus each Executor's own policy. It MAY still authenticate Exe
 **Trust spectrum.** A fully-app-unaware broker terminates TLS, so it sees prompts (never keys) —
 a "trust the operator" model, acceptable for many public stations and still fully non-custodial of
 the credential. To make the broker *blind* to content, move the small amount of awareness off the
-app and into a local shim that the unaware app talks to: the shim runs the inner Noise layer (§9)
-end-to-end to the Executor, and the broker routes ciphertext by token without decrypting it — the
-untrusted-relay case of §9, plus token routing. You can have *app-unaware*, *blind-broker*, and
+app and into a **local shim** the unaware app talks to (`keyward shim`): the shim runs the inner
+seal layer (§9) end-to-end to the Executor — it seals each request to the Executor's identity key,
+the broker forwards ciphertext by token without decrypting (`POST /kw/sealed`, `Sealed` frames),
+and only metadata terminals (done/error, usage) stay cleartext. That is the untrusted-relay case of
+§9 plus token routing. You can have *app-unaware*, *blind-broker*, and
 *routable* pairwise, but not all three at once without that shim.
 
 The reference broker is `keyward broker` (feature `broker`): many Executors dial in, each
@@ -342,9 +348,10 @@ v1.**
 
 These are unresolved on purpose, and feedback on them is the most useful thing an issue can carry:
 
-- **The concrete Noise profile** for the inner relay layer (§9): pattern (`XX` first-contact, `KK`
-  vs `IKpsk2` steady-state), framing (Noise caps messages at 65535 bytes), and the re-handshake
-  schedule for forward secrecy on a long-lived channel.
+- **Forward secrecy for the inner layer (§9).** The shipped seal layer is non-interactive ECIES
+  (no per-message FS). The open upgrade is an interactive **Noise** profile: pattern (`XX`
+  first-contact, `KK` vs `IKpsk2` steady-state), framing (Noise caps messages at 65535 bytes), and
+  the re-handshake schedule — at the cost of relaying a multi-message handshake through the broker.
 - A binary/CBOR transport profile (§1).
 - Multi-key / multi-account Executors: a single Executor fronting several providers or several
   accounts of one provider — assumed reachable via `provider`, but selection beyond that is

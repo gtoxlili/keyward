@@ -19,7 +19,11 @@ pub mod pricing;
 pub mod provider;
 #[cfg(feature = "proxy")]
 pub mod proxy;
+#[cfg(feature = "seal")]
+pub mod seal;
 pub mod secret;
+#[cfg(feature = "shim")]
+pub mod shim;
 pub mod transport;
 pub mod wire;
 

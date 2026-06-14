@@ -326,6 +326,21 @@ async fn serve_once(
                     });
                     break Flow::Stop;
                 }
+                #[cfg(feature = "seal")]
+                Body::Sealed { blob } => {
+                    if !authenticated {
+                        continue;
+                    }
+                    spawn_sealed_work(
+                        frame.mid,
+                        sid.clone(),
+                        blob,
+                        cfg.clone(),
+                        shared.clone(),
+                        out.clone(),
+                        orch_id.clone(),
+                    );
+                }
                 _ => {}
             },
             None => break Flow::Reconnect, // channel dropped → suspend & reconnect (§7)
@@ -441,6 +456,172 @@ fn spawn_work(
             mid.clone(),
         );
         deliver(intent, shared, out, sid, mid, 0).await;
+    });
+}
+
+/// Serve a sealed work intent (§9): decrypt with the Executor's identity-derived key,
+/// enforce policy, call the provider, and seal each response chunk back over the same
+/// channel. The broker only ever relayed ciphertext. A decryption failure is dropped —
+/// the broker can't help, and there is no shared channel to report an error over.
+#[cfg(feature = "seal")]
+#[allow(clippy::too_many_arguments)]
+fn spawn_sealed_work(
+    mid: String,
+    sid: Option<String>,
+    blob: String,
+    cfg: Arc<ExecutorConfig>,
+    shared: Arc<Shared>,
+    out: mpsc::Sender<Frame>,
+    orchestrator: String,
+) {
+    tokio::spawn(async move {
+        // envelope = hex(ephemeral_pubkey)(64 chars) ‖ sealed(nonce‖ciphertext)
+        if blob.len() < 64 {
+            return;
+        }
+        let (epk, sealed_req) = blob.split_at(64);
+        let Ok(channel) = crate::seal::Sealed::responder(&crate::seal::x25519_secret(&cfg.identity), epk)
+        else {
+            return;
+        };
+        let Ok(pt) = channel.open(sealed_req) else {
+            return;
+        };
+        let inner: Value = serde_json::from_slice(&pt).unwrap_or(Value::Null);
+        let provider = inner
+            .get("provider")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+        let request = inner.get("request").cloned().unwrap_or(Value::Null);
+        let model = request
+            .get("model")
+            .and_then(Value::as_str)
+            .unwrap_or("")
+            .to_string();
+
+        // Seal a JSON value into a response frame over the same channel.
+        let reply = |v: Value| -> Frame {
+            let blob = channel.seal(v.to_string().as_bytes()).unwrap_or_default();
+            Frame::new(sid.clone(), mid.clone(), Body::Sealed { blob })
+        };
+
+        // Policy (§6) — same as the cleartext path.
+        let denied = {
+            let r = shared.runtime.lock().await;
+            let live = Live {
+                rpm_used: r.rpm_used,
+                spent_usd: r.spent_usd,
+                now_rfc3339: "",
+            };
+            cfg.policy.check(&provider, &model, &orchestrator, live).err()
+        };
+        if let Some(d) = denied {
+            shared.emit(ExecutorEvent::Denied {
+                mid: mid.clone(),
+                provider: provider.clone(),
+                model: model.clone(),
+                code: d.code().into(),
+            });
+            // Terminals are cleartext: they carry only metadata (a code), never content,
+            // and let the blind broker manage the relay lifecycle.
+            let _ = out
+                .send(Frame::new(
+                    sid.clone(),
+                    mid.clone(),
+                    Body::WorkError {
+                        code: d.code().into(),
+                        message: "rejected by policy".into(),
+                        provider_status: None,
+                    },
+                ))
+                .await;
+            return;
+        }
+        shared.runtime.lock().await.rpm_used += 1;
+        shared.emit(ExecutorEvent::Accepted {
+            mid: mid.clone(),
+            provider: provider.clone(),
+            model: model.clone(),
+        });
+        println!(
+            "[executor] ACCEPT (sealed) provider={provider} model={model}  (decrypted locally; broker saw only ciphertext)"
+        );
+
+        let key = cfg.keys.resolve(&provider);
+        let mut rx = match provider::call(&provider, &model, &request, &key).await {
+            Ok(rx) => rx,
+            Err(e) => {
+                shared.emit(ExecutorEvent::WorkFailed {
+                    mid: mid.clone(),
+                    code: "provider_network".into(),
+                    message: e.to_string(),
+                });
+                let _ = out
+                    .send(Frame::new(
+                        sid.clone(),
+                        mid.clone(),
+                        Body::WorkError {
+                            code: "provider_network".into(),
+                            message: e.to_string(),
+                            provider_status: None,
+                        },
+                    ))
+                    .await;
+                return;
+            }
+        };
+        loop {
+            match rx.recv().await {
+                Some(Event::Chunk(delta)) => {
+                    // Only the content is sealed.
+                    let _ = out.send(reply(serde_json::json!({ "chunk": delta }))).await;
+                }
+                Some(Event::Done { usage, .. }) => {
+                    let cost = pricing::cost_usd(&model, &usage);
+                    let spent = {
+                        let mut r = shared.runtime.lock().await;
+                        r.spent_usd += cost;
+                        r.spent_usd
+                    };
+                    shared.emit(ExecutorEvent::Done {
+                        mid: mid.clone(),
+                        provider: provider.clone(),
+                        model: model.clone(),
+                        input_tokens: usage.input_tokens,
+                        output_tokens: usage.output_tokens,
+                        cost_usd: cost,
+                        spent_usd: spent,
+                    });
+                    println!(
+                        "[executor] DONE (sealed) {mid}  usage in={} out={}  cost=${cost:.5}",
+                        usage.input_tokens, usage.output_tokens
+                    );
+                    let _ = out
+                        .send(Frame::new(
+                            sid.clone(),
+                            mid.clone(),
+                            Body::WorkDone { result: None, usage },
+                        ))
+                        .await;
+                    return;
+                }
+                None => {
+                    let _ = out
+                        .send(Frame::new(
+                            sid.clone(),
+                            mid.clone(),
+                            Body::WorkError {
+                                code: "provider_network".into(),
+                                message: "stream ended".into(),
+                                provider_status: None,
+                            },
+                        ))
+                        .await;
+                    return;
+                }
+            }
+        }
     });
 }
 

@@ -19,6 +19,7 @@ async fn main() -> anyhow::Result<()> {
         "identity" => identity_cli(),
         "proxy" => run_proxy().await,
         "broker" => run_broker().await,
+        "shim" => run_shim().await,
         "-h" | "--help" | "help" => {
             print_usage();
             Ok(())
@@ -50,6 +51,17 @@ async fn run_broker() -> anyhow::Result<()> {
     #[cfg(not(feature = "broker"))]
     {
         anyhow::bail!("`keyward broker` needs a build with --features broker")
+    }
+}
+
+async fn run_shim() -> anyhow::Result<()> {
+    #[cfg(feature = "shim")]
+    {
+        keyward::shim::run_cli().await
+    }
+    #[cfg(not(feature = "shim"))]
+    {
+        anyhow::bail!("`keyward shim` needs a build with --features shim")
     }
 }
 
@@ -111,6 +123,8 @@ fn print_usage() {
              env: KEYWARD_LISTEN, KEYWARD_PROXY_LISTEN, KEYWARD_PAIRING_TOKEN\n  \
            keyward broker        multi-tenant broker: many executors, routed by the request's API-key token (--features broker)\n                        \
              env: KEYWARD_LISTEN, KEYWARD_PROXY_LISTEN, KEYWARD_PAIRING_TOKEN\n  \
+           keyward shim          requester-side shim: seals to the executor, relays via a blind broker (--features shim)\n                        \
+             env: KEYWARD_SHIM_LISTEN, KEYWARD_BROKER_URL, KEYWARD_ROUTE_TOKEN, KEYWARD_EXECUTOR_PUBKEY\n  \
            keyward orchestrator  serve a single-prompt mock Orchestrator\n                        \
              env: KEYWARD_LISTEN, KEYWARD_PAIRING_TOKEN, KEYWARD_PROVIDER, KEYWARD_MODEL,\n                        \
                   KEYWARD_PROMPT, KEYWARD_AUTHORIZED_EXECUTORS"

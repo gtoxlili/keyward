@@ -33,7 +33,7 @@ verification** and the **Orchestrator SDK / proxy**.
 ## ⬜ Not built yet — the gap to "done"
 
 ### Security / protocol hardening
-- [ ] **Noise inner layer** — E2E crypto for the untrusted-relay case; pick the concrete profile (§9 / spec open question)
+- [x] **Inner seal layer** — E2E crypto for the untrusted-relay / blind-broker case (§9/§10): `keyward shim` seals each request to the Executor's identity key (non-interactive ECIES — X25519 from the Ed25519 identities + ChaCha20-Poly1305), the broker forwards only ciphertext. Verified live: a secret in the prompt never reached the broker. (Interactive Noise XX, for per-message forward secrecy, remains the open upgrade.)
 - [x] **Single-use pairing tokens** — a token binds to one Executor identity; the same identity may reconnect (resume), a different one is refused
 - [~] **Out-of-band fingerprint confirmation** — `KEYWARD_EXPECT_ROOT_FP` lets the Owner pre-state the expected root fingerprint and refuse a mismatch; a passkey / QR gesture is still future
 - [ ] **Signature-bound resume** — bind `resume` to a fresh identity signature, not just a re-pair
@@ -56,7 +56,7 @@ verification** and the **Orchestrator SDK / proxy**.
 - [ ] **Byte-reproducible build** — pinned-container build so a third party can reproduce the binary bit-for-bit (provenance attestation already ships)
 
 ### Spec open questions
-- [ ] Concrete **Noise profile** — pattern (`XX` / `KK` / `IKpsk2`), framing, re-handshake schedule (§9)
+- [ ] **Noise profile for forward secrecy** — the shipped seal layer is non-interactive ECIES (no FS); an interactive Noise `XX`/`KK`/`IKpsk2` profile (framing, re-handshake schedule) is the FS upgrade (§9)
 - [ ] **Binary / CBOR transport profile** (§1)
 - [ ] **Multi-key / multi-account Executors** — selection beyond `provider` is under-specified
 
