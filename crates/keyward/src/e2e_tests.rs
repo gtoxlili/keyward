@@ -1,6 +1,6 @@
-//! End-to-end integration tests that drive the real `executor::run` against a
-//! test-written Orchestrator over a localhost WebSocket, asserting on the frames
-//! the Executor produces. These complement the `demo`/`resume-demo` binaries
+//! End-to-end integration tests that drive the real `client::run` against a
+//! test-written Node over a localhost WebSocket, asserting on the frames
+//! the Client produces. These complement the `demo`/`resume-demo` binaries
 //! (which are smoke tests printed for a human) with machine-checked assertions.
 
 use std::sync::Arc;
@@ -17,22 +17,22 @@ use tokio::sync::Mutex;
 use tokio_tungstenite::tungstenite::Message;
 use tokio_tungstenite::{WebSocketStream, accept_async};
 
-use crate::executor::{self, ExecutorConfig};
+use crate::client::{self, ClientConfig};
 use crate::secret::KeySource;
 use crate::{identity, wire};
 
 type WsW = SplitSink<WebSocketStream<TcpStream>, Message>;
 type WsR = SplitStream<WebSocketStream<TcpStream>>;
 
-/// Bind a localhost listener and spawn the real Executor dialing it. Returns the
-/// accepted server-side WebSocket halves and the Executor's join handle.
+/// Bind a localhost listener and spawn the real Client dialing it. Returns the
+/// accepted server-side WebSocket halves and the Client's join handle.
 async fn harness(policy: Policy) -> (WsW, WsR, tokio::task::JoinHandle<anyhow::Result<()>>) {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let addr = listener.local_addr().unwrap();
     let url = format!("ws://{addr}");
 
-    let cfg = ExecutorConfig {
-        name: "test-exec".into(),
+    let cfg = ClientConfig {
+        name: "test-client_task".into(),
         providers: vec!["mock".into()],
         policy,
         keys: KeySource::Fixed(SecretString::from("sk-TEST-never-leaves".to_string())),
@@ -40,11 +40,11 @@ async fn harness(policy: Policy) -> (WsW, WsR, tokio::task::JoinHandle<anyhow::R
         pinned: Arc::new(Mutex::new(None)),
         events: None,
     };
-    let exec = tokio::spawn(async move { executor::run(&url, "pt_test", cfg).await });
+    let client_task = tokio::spawn(async move { client::run(&url, "pt_test", cfg).await });
 
     let (stream, _) = listener.accept().await.unwrap();
     let (w, r) = accept_async(stream).await.unwrap().split();
-    (w, r, exec)
+    (w, r, client_task)
 }
 
 /// Send a valid `paired` (fresh root + delegated op key) and return the sid.
@@ -57,10 +57,10 @@ async fn pair(w: &mut WsW, root: &SigningKey) -> String {
         Some(sid.clone()),
         "m_paired",
         Body::Paired {
-            orchestrator: Peer {
-                name: "test-orch".into(),
+            node: Peer {
+                name: "test-node".into(),
                 version: None,
-                id: Some("orch_test".into()),
+                id: Some("node_test".into()),
             },
             root_pubkey: wire::hex(&root.verifying_key().to_bytes()),
             op: cert,
@@ -89,7 +89,7 @@ async fn allowed_work_streams_with_monotonic_seq_and_usage() {
         models: Some(vec!["gpt-4o".into()]),
         ..Default::default()
     };
-    let (mut w, mut r, exec) = harness(policy).await;
+    let (mut w, mut r, client_task) = harness(policy).await;
 
     // hello -> pair
     assert!(matches!(
@@ -132,7 +132,7 @@ async fn allowed_work_streams_with_monotonic_seq_and_usage() {
     )
     .await
     .unwrap();
-    exec.await.unwrap().unwrap();
+    client_task.await.unwrap().unwrap();
 }
 
 #[tokio::test]
@@ -142,7 +142,7 @@ async fn disallowed_model_is_refused_before_provider() {
         models: Some(vec!["gpt-4o".into()]),
         ..Default::default()
     };
-    let (mut w, mut r, exec) = harness(policy).await;
+    let (mut w, mut r, client_task) = harness(policy).await;
     assert!(matches!(
         wire::recv(&mut r).await.unwrap().unwrap().body,
         Body::Hello { .. }
@@ -179,12 +179,12 @@ async fn disallowed_model_is_refused_before_provider() {
     )
     .await
     .unwrap();
-    exec.await.unwrap().unwrap();
+    client_task.await.unwrap().unwrap();
 }
 
 #[tokio::test]
 async fn work_before_pairing_is_rejected() {
-    let (mut w, mut r, exec) = harness(Policy::default()).await;
+    let (mut w, mut r, client_task) = harness(Policy::default()).await;
     assert!(matches!(
         wire::recv(&mut r).await.unwrap().unwrap().body,
         Body::Hello { .. }
@@ -211,12 +211,12 @@ async fn work_before_pairing_is_rejected() {
     )
     .await
     .unwrap();
-    exec.await.unwrap().unwrap();
+    client_task.await.unwrap().unwrap();
 }
 
 #[tokio::test]
 async fn op_key_not_signed_by_claimed_root_is_refused() {
-    let (mut w, mut r, exec) = harness(Policy::default()).await;
+    let (mut w, mut r, client_task) = harness(Policy::default()).await;
     assert!(matches!(
         wire::recv(&mut r).await.unwrap().unwrap().body,
         Body::Hello { .. }
@@ -233,10 +233,10 @@ async fn op_key_not_signed_by_claimed_root_is_refused() {
         Some(sid.clone()),
         "m_paired",
         Body::Paired {
-            orchestrator: Peer {
+            node: Peer {
                 name: "evil".into(),
                 version: None,
-                id: Some("orch_evil".into()),
+                id: Some("node_evil".into()),
             },
             root_pubkey: wire::hex(&claimed_root.verifying_key().to_bytes()),
             op: cert,
@@ -245,7 +245,7 @@ async fn op_key_not_signed_by_claimed_root_is_refused() {
     );
     wire::send(&mut w, &frame).await.unwrap();
 
-    // The Executor refuses to bind and tears down the channel (a clean close or a
+    // The Client refuses to bind and tears down the channel (a clean close or a
     // reset); either way our reads end and no work is ever accepted.
     while let Ok(Some(frame)) = wire::recv(&mut r).await {
         assert!(
@@ -253,7 +253,7 @@ async fn op_key_not_signed_by_claimed_root_is_refused() {
             "must not accept work after a forged chain"
         );
     }
-    exec.await.unwrap().unwrap();
+    client_task.await.unwrap().unwrap();
 }
 
 /// Opt-in live test against a real OpenAI-compatible endpoint. Skipped unless
@@ -279,7 +279,7 @@ async fn live_openai_chat_streams_and_meters() {
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("ws://{}", listener.local_addr().unwrap());
-    let cfg = ExecutorConfig {
+    let cfg = ClientConfig {
         name: "live".into(),
         providers: vec!["openai".into()],
         policy: Policy {
@@ -291,7 +291,7 @@ async fn live_openai_chat_streams_and_meters() {
         pinned: Arc::new(Mutex::new(None)),
         events: None,
     };
-    let exec = tokio::spawn(async move { executor::run(&url, "pt", cfg).await });
+    let client_task = tokio::spawn(async move { client::run(&url, "pt", cfg).await });
 
     let (stream, _) = listener.accept().await.unwrap();
     let (mut w, mut r) = accept_async(stream).await.unwrap().split();
@@ -345,5 +345,5 @@ async fn live_openai_chat_streams_and_meters() {
     )
     .await
     .unwrap();
-    exec.await.unwrap().unwrap();
+    client_task.await.unwrap().unwrap();
 }

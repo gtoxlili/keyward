@@ -1,10 +1,10 @@
-//! Requester-side shim (`keyward shim`, feature `shim`) — the trustless-broker client (§9).
+//! Requester-side shim (`keyward shim`, feature `shim`) — the trustless-node client (§9).
 //!
 //! An unaware OpenAI app points `OPENAI_BASE_URL` at this localhost endpoint. The shim
-//! seals each request to the Executor's **identity** key, posts the ciphertext to the
-//! broker (which routes it blind by the routing token), and decrypts the sealed reply —
-//! so the broker never sees the prompt or completion. The awareness lives here, in a
-//! local shim, not in the app: app-unaware AND broker-blind, at once.
+//! seals each request to the Client's **identity** key, posts the ciphertext to the
+//! node (which routes it blind by the routing token), and decrypts the sealed reply —
+//! so the node never sees the prompt or completion. The awareness lives here, in a
+//! local shim, not in the app: app-unaware AND node-blind, at once.
 
 use std::convert::Infallible;
 use std::sync::Arc;
@@ -20,39 +20,39 @@ use ed25519_dalek::VerifyingKey;
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 
-use crate::orchestrator::chunk_text;
 use crate::seal::{self, Sealed};
+use crate::session::chunk_text;
 use crate::wire;
 
 struct ShimState {
     client: reqwest::Client,
     sealed_url: String,
     token: String,
-    exec_pub: crypto_box::PublicKey,
+    client_pub: crypto_box::PublicKey,
 }
 
 pub async fn run_cli() -> Result<()> {
     let listen = std::env::var("KEYWARD_SHIM_LISTEN").unwrap_or_else(|_| "127.0.0.1:8099".into());
-    let broker = std::env::var("KEYWARD_BROKER_URL").unwrap_or_else(|_| "http://127.0.0.1:8088".into());
+    let node = std::env::var("KEYWARD_NODE_URL").unwrap_or_else(|_| "http://127.0.0.1:8088".into());
     let token = std::env::var("KEYWARD_ROUTE_TOKEN")
-        .map_err(|_| anyhow!("set KEYWARD_ROUTE_TOKEN (your executor's routing token)"))?;
-    let exec_pubkey_hex = std::env::var("KEYWARD_EXECUTOR_PUBKEY")
-        .map_err(|_| anyhow!("set KEYWARD_EXECUTOR_PUBKEY (the executor's identity pubkey, hex)"))?;
+        .map_err(|_| anyhow!("set KEYWARD_ROUTE_TOKEN (your client's routing token)"))?;
+    let client_pubkey_hex = std::env::var("KEYWARD_CLIENT_PUBKEY")
+        .map_err(|_| anyhow!("set KEYWARD_CLIENT_PUBKEY (the client's identity pubkey, hex)"))?;
 
-    let vk_bytes: [u8; 32] = wire::unhex(&exec_pubkey_hex)
+    let vk_bytes: [u8; 32] = wire::unhex(&client_pubkey_hex)
         .filter(|b| b.len() == 32)
-        .ok_or_else(|| anyhow!("KEYWARD_EXECUTOR_PUBKEY must be 32-byte hex"))?
+        .ok_or_else(|| anyhow!("KEYWARD_CLIENT_PUBKEY must be 32-byte hex"))?
         .try_into()
         .unwrap();
-    let exec_pub = seal::x25519_public(
-        &VerifyingKey::from_bytes(&vk_bytes).map_err(|e| anyhow!("bad executor pubkey: {e}"))?,
+    let client_pub = seal::x25519_public(
+        &VerifyingKey::from_bytes(&vk_bytes).map_err(|e| anyhow!("bad client pubkey: {e}"))?,
     );
 
     let state = Arc::new(ShimState {
         client: reqwest::Client::new(),
-        sealed_url: format!("{}/kw/sealed", broker.trim_end_matches('/')),
+        sealed_url: format!("{}/kw/sealed", node.trim_end_matches('/')),
         token,
-        exec_pub,
+        client_pub,
     });
 
     let app = Router::new()
@@ -61,7 +61,7 @@ pub async fn run_cli() -> Result<()> {
         .route("/v1/messages", post(messages))
         .with_state(state);
     let http = TcpListener::bind(&listen).await?;
-    println!("[shim] OpenAI endpoint on http://{listen}  (sealing to the executor; broker stays blind)");
+    println!("[shim] OpenAI endpoint on http://{listen}  (sealing to the client; node stays blind)");
     println!("[shim] point your app:  OPENAI_BASE_URL=http://{listen}/v1  OPENAI_API_KEY=anything");
     axum::serve(http, app).await?;
     Ok(())
@@ -93,16 +93,16 @@ async fn relay(s: Arc<ShimState>, provider: &str, body: Value) -> Response {
         .unwrap_or("")
         .to_string();
 
-    // Seal {provider, request} to the executor's identity key.
+    // Seal {provider, request} to the client's identity key.
     let inner = json!({ "provider": provider, "request": body });
-    let (channel, epk) = Sealed::initiator(&s.exec_pub);
+    let (channel, epk) = Sealed::initiator(&s.client_pub);
     let sealed = match channel.seal(inner.to_string().as_bytes()) {
         Ok(x) => x,
         Err(e) => return gateway_error(e.to_string()),
     };
     let blob = format!("{epk}{sealed}");
 
-    // Relay through the (blind) broker, authorized by the routing token.
+    // Relay through the (blind) node, authorized by the routing token.
     let resp = match s
         .client
         .post(&s.sealed_url)
@@ -112,14 +112,14 @@ async fn relay(s: Arc<ShimState>, provider: &str, body: Value) -> Response {
         .await
     {
         Ok(r) => r,
-        Err(e) => return gateway_error(format!("broker unreachable: {e}")),
+        Err(e) => return gateway_error(format!("node unreachable: {e}")),
     };
     let sse = match resp.text().await {
         Ok(t) => t,
         Err(e) => return gateway_error(e.to_string()),
     };
 
-    // Parse the broker's SSE: sealed-blob data lines → decrypt to native chunks; an
+    // Parse the node's SSE: sealed-blob data lines → decrypt to native chunks; an
     // `event: error` data line is the cleartext terminal; `[DONE]` ends the stream.
     let mut deltas: Vec<Value> = Vec::new();
     let mut error: Option<String> = None;

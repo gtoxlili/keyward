@@ -1,5 +1,5 @@
-//! Orchestrator-side crypto: the root → operational-key chain and Executor
-//! authentication. The byte formats here MUST match the Executor's verifier.
+//! Node-side crypto: the root → operational-key chain and Client
+//! authentication. The byte formats here MUST match the Client's verifier.
 
 use anyhow::{Result, anyhow, bail};
 use ed25519_dalek::{Signer, SigningKey, Verifier, VerifyingKey};
@@ -48,7 +48,7 @@ pub fn build_paired(cfg: &Config) -> (String, Frame) {
         Some(sid.clone()),
         new_mid(),
         Body::Paired {
-            orchestrator: Peer {
+            node: Peer {
                 name: cfg.name.clone(),
                 version: None,
                 id: Some(cfg.id.clone()),
@@ -61,15 +61,15 @@ pub fn build_paired(cfg: &Config) -> (String, Frame) {
     (sid, frame)
 }
 
-/// The orchestrator's root identity fingerprint (show this to the Owner for OOB
+/// The node's root identity fingerprint (show this to the Owner for OOB
 /// confirmation).
 pub fn root_fingerprint(cfg: &Config) -> String {
     crate::wire::fingerprint(&cfg.root.verifying_key().to_bytes())
 }
 
-/// Authenticate the Executor from its `hello`: pairing token, possession proof
+/// Authenticate the Client from its `hello`: pairing token, possession proof
 /// (signature over the token), and the optional allow-list.
-pub fn authenticate_executor(hello: &Body, cfg: &Config) -> Result<()> {
+pub fn authenticate_client(hello: &Body, cfg: &Config) -> Result<()> {
     let Body::Hello {
         pairing_token,
         pubkey,
@@ -87,18 +87,18 @@ pub fn authenticate_executor(hello: &Body, cfg: &Config) -> Result<()> {
             let vk = parse_pubkey(pk)?;
             let sig = parse_sig(sig)?;
             vk.verify(cfg.pairing_token.as_bytes(), &sig)
-                .map_err(|_| anyhow!("executor identity signature invalid"))?;
+                .map_err(|_| anyhow!("client identity signature invalid"))?;
         }
         _ => {
-            if cfg.authorized_executors.is_some() {
-                bail!("executor identity required but not provided");
+            if cfg.authorized_clients.is_some() {
+                bail!("client identity required but not provided");
             }
         }
     }
-    if let Some(allow) = &cfg.authorized_executors {
+    if let Some(allow) = &cfg.authorized_clients {
         let pk = pubkey.as_deref().unwrap_or("");
         if !allow.iter().any(|a| a == pk) {
-            bail!("executor not authorized");
+            bail!("client not authorized");
         }
     }
     Ok(())

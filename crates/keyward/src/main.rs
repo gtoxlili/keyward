@@ -1,10 +1,11 @@
-//! Keyward reference Executor + a mock Orchestrator for the end-to-end demo.
+//! Keyward CLI — the reference **Client** (holds the key, dials out) and **Node**
+//! (the rendezvous the unaware SaaS points at).
 //!
 //!   keyward demo          run the self-contained end-to-end demo (default)
-//!   keyward executor      dial out to an Orchestrator (env-configured)
-//!   keyward orchestrator  serve a single-prompt Orchestrator for manual testing
+//!   keyward client        dial out to a Node, hold the key, serve provider calls
+//!   keyward node          run a Node: many Clients dial in, routed by API-key token
 
-use keyward::{demo, executor, identity, orchestrator, secret, wire};
+use keyward::{client, demo, identity, secret, wire};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -12,13 +13,11 @@ async fn main() -> anyhow::Result<()> {
     match cmd.as_str() {
         "demo" => demo::run().await,
         "resume-demo" => demo::run_resume().await,
-        "executor" => executor::run_cli().await,
-        "orchestrator" => orchestrator::run_cli().await,
+        "client" => client::run_cli().await,
         "set-key" => set_key_cli(),
         "delete-key" => delete_key_cli(),
         "identity" => identity_cli(),
-        "proxy" => run_proxy().await,
-        "broker" => run_broker().await,
+        "node" => run_node().await,
         "shim" => run_shim().await,
         "-h" | "--help" | "help" => {
             print_usage();
@@ -32,25 +31,14 @@ async fn main() -> anyhow::Result<()> {
     }
 }
 
-async fn run_proxy() -> anyhow::Result<()> {
-    #[cfg(feature = "proxy")]
+async fn run_node() -> anyhow::Result<()> {
+    #[cfg(feature = "node")]
     {
-        keyward::proxy::run_cli().await
+        keyward::node::run_cli().await
     }
-    #[cfg(not(feature = "proxy"))]
+    #[cfg(not(feature = "node"))]
     {
-        anyhow::bail!("`keyward proxy` needs a build with --features proxy")
-    }
-}
-
-async fn run_broker() -> anyhow::Result<()> {
-    #[cfg(feature = "broker")]
-    {
-        keyward::broker::run_cli().await
-    }
-    #[cfg(not(feature = "broker"))]
-    {
-        anyhow::bail!("`keyward broker` needs a build with --features broker")
+        anyhow::bail!("`keyward node` needs a build with --features node")
     }
 }
 
@@ -65,14 +53,14 @@ async fn run_shim() -> anyhow::Result<()> {
     }
 }
 
-/// Print this Executor's identity pubkey + fingerprint, to register with an
-/// Orchestrator / SaaS that allow-lists Executors.
+/// Print this Client's identity pubkey + fingerprint, to register with a Node that
+/// allow-lists Clients.
 fn identity_cli() -> anyhow::Result<()> {
     let vk = identity::load_or_create_identity().verifying_key().to_bytes();
-    println!("executor identity");
+    println!("client identity");
     println!("  fingerprint: {}", wire::fingerprint(&vk));
     println!("  pubkey:      {}", wire::hex(&vk));
-    println!("\nGive the pubkey to an orchestrator to be allow-listed (e.g. KEYWARD_AUTHORIZED_EXECUTORS).");
+    println!("\nGive the pubkey to a Node to be allow-listed (e.g. KEYWARD_AUTHORIZED_CLIENTS).");
     Ok(())
 }
 
@@ -110,23 +98,18 @@ fn delete_key_cli() -> anyhow::Result<()> {
 
 fn print_usage() {
     eprintln!(
-        "keyward — non-custodial BYOK executor (v0 skeleton)\n\n\
+        "keyward — non-custodial BYOK: a Node (rendezvous) + a Client (holds the key)\n\n\
          USAGE:\n  \
            keyward demo          self-contained end-to-end demo (no key, no network)\n  \
            keyward resume-demo   drop-the-channel resume + cancel demo (§7)\n  \
-           keyward executor      dial out to an Orchestrator (keys from OS keychain, then env)\n                        \
-             env: KEYWARD_ORCH_URL, KEYWARD_PAIRING_TOKEN\n  \
+           keyward client        dial out to a Node, hold the key, serve provider calls\n                        \
+             env: KEYWARD_NODE_URL, KEYWARD_PAIRING_TOKEN, KEYWARD_ROUTE_TOKEN\n  \
            keyward set-key <p>   store provider <p>'s key in the OS keychain (key via stdin)\n  \
            keyward delete-key <p> remove provider <p>'s key from the OS keychain\n  \
-           keyward identity      print this Executor's identity pubkey (to be allow-listed)\n  \
-           keyward proxy         OpenAI-compatible HTTP proxy backed by a paired executor (--features proxy)\n                        \
-             env: KEYWARD_LISTEN, KEYWARD_PROXY_LISTEN, KEYWARD_PAIRING_TOKEN\n  \
-           keyward broker        multi-tenant broker: many executors, routed by the request's API-key token (--features broker)\n                        \
-             env: KEYWARD_LISTEN, KEYWARD_PROXY_LISTEN, KEYWARD_PAIRING_TOKEN\n  \
-           keyward shim          requester-side shim: seals to the executor, relays via a blind broker (--features shim)\n                        \
-             env: KEYWARD_SHIM_LISTEN, KEYWARD_BROKER_URL, KEYWARD_ROUTE_TOKEN, KEYWARD_EXECUTOR_PUBKEY\n  \
-           keyward orchestrator  serve a single-prompt mock Orchestrator\n                        \
-             env: KEYWARD_LISTEN, KEYWARD_PAIRING_TOKEN, KEYWARD_PROVIDER, KEYWARD_MODEL,\n                        \
-                  KEYWARD_PROMPT, KEYWARD_AUTHORIZED_EXECUTORS"
+           keyward identity      print this Client's identity pubkey (to be allow-listed)\n  \
+           keyward node          run a Node: Clients dial in, requests routed by the API-key token (--features node)\n                        \
+             env: KEYWARD_LISTEN, KEYWARD_HTTP_LISTEN, KEYWARD_PAIRING_TOKEN\n  \
+           keyward shim          requester-side shim: seals to the Client, relays via a blind Node (--features shim)\n                        \
+             env: KEYWARD_SHIM_LISTEN, KEYWARD_NODE_URL, KEYWARD_ROUTE_TOKEN, KEYWARD_CLIENT_PUBKEY"
     );
 }

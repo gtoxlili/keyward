@@ -1,9 +1,12 @@
-//! A mock Orchestrator — the "app". Holds NO provider key. It issues a one-time
-//! pairing token, proves its identity by signing the assigned `sid` with its
-//! Ed25519 key (§3/§9), then sends work intents and reads the relayed stream.
+//! Node-side session primitives — pairing, Client authentication (§3/§9), and a
+//! single-pair `serve` loop the self-contained demo drives in-process. Holds NO
+//! provider key: it issues a one-time pairing token, presents a root-delegated
+//! operational key, signs the assigned `sid`, then sends work intents and reads the
+//! relayed stream.
 //!
-//! This is a test/demo harness, not a product surface. The real Orchestrator is
-//! whatever app integrates the (future) SDK.
+//! This is the demo/test-harness side. The deployable Node is `keyward node`
+//! ([`crate::node`]); the real "app" is an unaware OpenAI client that just points at
+//! a Node — it integrates nothing.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -17,42 +20,42 @@ use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::accept_async;
 use tokio_tungstenite::tungstenite::Message;
 
-use crate::executor::new_mid;
+use crate::client::new_mid;
 use crate::wire;
 
-pub struct OrchestratorConfig {
+pub struct NodeConfig {
     pub name: String,
     pub id: String,
     pub pairing_token: String,
     /// Long-term root identity. Each connection mints a fresh operational key
-    /// delegated by this root (§3), so the Executor pins the root once.
+    /// delegated by this root (§3), so the Client pins the root once.
     pub root: SigningKey,
-    /// Optional allow-list of authorized Executor identity pubkeys (hex). `None`
-    /// accepts any Executor that proves possession of its key; `Some` lets a SaaS
+    /// Optional allow-list of authorized Client identity pubkeys (hex). `None`
+    /// accepts any Client that proves possession of its key; `Some` lets a SaaS
     /// admit only registered users (§9).
-    pub authorized_executors: Option<Vec<String>>,
-    /// Single-use bookkeeping: a pairing token binds to one Executor identity
+    pub authorized_clients: Option<Vec<String>>,
+    /// Single-use bookkeeping: a pairing token binds to one Client identity
     /// (`token → pubkey`). The same identity may re-present it (reconnect/resume);
     /// a different identity is refused.
     pub claimed_tokens: Arc<Mutex<HashMap<String, String>>>,
-    /// Enforce one-identity-per-token (the SaaS default). A multi-tenant **broker**
-    /// (§10) sets this `false`: one shared join-token admits many Executors, and
-    /// per-user isolation comes from the routing token + the Executor's own policy.
+    /// Enforce one-identity-per-token (the SaaS default). A multi-tenant **node**
+    /// (§10) sets this `false`: one shared join-token admits many Clients, and
+    /// per-user isolation comes from the routing token + the Client's own policy.
     pub single_use_token: bool,
     /// Scripted intents: (provider, native request body without credential).
     pub intents: Vec<(String, Value)>,
 }
 
-/// Serve a single dialed-in Executor through pairing + the scripted intents.
-pub async fn serve(stream: TcpStream, cfg: OrchestratorConfig) -> Result<()> {
+/// Serve a single dialed-in Client through pairing + the scripted intents.
+pub async fn serve(stream: TcpStream, cfg: NodeConfig) -> Result<()> {
     let ws = accept_async(stream).await?;
     let (mut write, mut read) = ws.split();
 
-    // 1. expect hello, authenticate the Executor (token + identity + allow-list).
+    // 1. expect hello, authenticate the Client (token + identity + allow-list).
     let hello = wire::recv(&mut read)
         .await?
         .ok_or_else(|| anyhow!("closed before hello"))?;
-    if let Err(e) = authenticate_executor(&hello.body, &cfg) {
+    if let Err(e) = authenticate_client(&hello.body, &cfg) {
         let _ = wire::send(
             &mut write,
             &Frame::new(
@@ -80,7 +83,7 @@ pub async fn serve(stream: TcpStream, cfg: OrchestratorConfig) -> Result<()> {
             .and_then(Value::as_str)
             .unwrap_or("?")
             .to_string();
-        println!("\n[orchestr] --> work #{i}  provider={provider}  model={model}");
+        println!("\n[node] --> work #{i}  provider={provider}  model={model}");
         wire::send(
             &mut write,
             &Frame::new(Some(sid.clone()), mid.clone(), Body::Work { provider, request }),
@@ -96,22 +99,22 @@ pub async fn serve(stream: TcpStream, cfg: OrchestratorConfig) -> Result<()> {
                 continue; // demux by echoed mid
             }
             match frame.body {
-                Body::WorkAccepted {} => println!("[orchestr]     accepted"),
+                Body::WorkAccepted {} => println!("[node]     accepted"),
                 Body::WorkChunk { seq, delta } => {
                     let piece = chunk_text(&delta);
                     assembled.push_str(piece);
-                    println!("[orchestr]     chunk seq={seq}  {piece:?}");
+                    println!("[node]     chunk seq={seq}  {piece:?}");
                 }
                 Body::WorkDone { usage, .. } => {
-                    println!("[orchestr]     done  assembled={assembled:?}");
+                    println!("[node]     done  assembled={assembled:?}");
                     println!(
-                        "[orchestr]     usage in={} out={}",
+                        "[node]     usage in={} out={}",
                         usage.input_tokens, usage.output_tokens
                     );
                     break;
                 }
                 Body::WorkError { code, message, .. } => {
-                    println!("[orchestr]     ERROR  {code}: {message}");
+                    println!("[node]     ERROR  {code}: {message}");
                     break;
                 }
                 _ => {}
@@ -134,50 +137,8 @@ pub async fn serve(stream: TcpStream, cfg: OrchestratorConfig) -> Result<()> {
     Ok(())
 }
 
-/// Standalone single-prompt Orchestrator for manual two-terminal testing.
-pub async fn run_cli() -> Result<()> {
-    use rand_core::OsRng;
-    use tokio::net::TcpListener;
-
-    let listen = std::env::var("KEYWARD_LISTEN").unwrap_or_else(|_| "127.0.0.1:8787".into());
-    let token = std::env::var("KEYWARD_PAIRING_TOKEN").unwrap_or_else(|_| "pt_dev_token".into());
-    let provider = std::env::var("KEYWARD_PROVIDER").unwrap_or_else(|_| "mock".into());
-    let model = std::env::var("KEYWARD_MODEL").unwrap_or_else(|_| "gpt-4o".into());
-    let prompt =
-        std::env::var("KEYWARD_PROMPT").unwrap_or_else(|_| "Hello from a Keyward orchestrator.".into());
-
-    let listener = TcpListener::bind(&listen).await?;
-    println!("[orchestr] listening on ws://{listen}   pairing_token={token}");
-    println!("[orchestr] run the executor with:");
-    println!("           KEYWARD_ORCH_URL=ws://{listen} KEYWARD_PAIRING_TOKEN={token} cargo run -- executor");
-    let (stream, _) = listener.accept().await?;
-
-    // Optional SaaS allow-list of Executor identity pubkeys (comma-separated hex).
-    let authorized_executors = std::env::var("KEYWARD_AUTHORIZED_EXECUTORS").ok().map(|s| {
-        s.split(',')
-            .map(|x| x.trim().to_string())
-            .filter(|x| !x.is_empty())
-            .collect::<Vec<_>>()
-    });
-
-    let cfg = OrchestratorConfig {
-        name: "keyward-orch".into(),
-        id: "orch_dev".into(),
-        pairing_token: token,
-        root: SigningKey::generate(&mut OsRng),
-        authorized_executors,
-        claimed_tokens: Default::default(),
-        single_use_token: true,
-        intents: vec![(
-            provider,
-            json!({"model": model, "messages": [{"role": "user", "content": prompt}], "stream": true}),
-        )],
-    };
-    serve(stream, cfg).await
-}
-
 /// Extract the text delta from a native chunk in either dialect — the demo's
-/// stand-in for what a real provider SDK does on the Orchestrator side. Keyward
+/// stand-in for what a real provider SDK does on the Node side. Keyward
 /// itself never looks inside the chunk; it just relays the bytes.
 pub(crate) fn chunk_text(delta: &Value) -> &str {
     if let Some(t) = delta.pointer("/choices/0/delta/content").and_then(Value::as_str) {
@@ -199,17 +160,17 @@ pub(crate) fn chunk_text(delta: &Value) -> &str {
     ""
 }
 
-/// Authenticate the Executor from its `hello` (§9): the pairing token, a possession
-/// proof (the Executor's signature over the token with its identity key), and — when
-/// the Orchestrator runs an allow-list — that the identity is authorized. This lets a
+/// Authenticate the Client from its `hello` (§9): the pairing token, a possession
+/// proof (the Client's signature over the token with its identity key), and — when
+/// the Node runs an allow-list — that the identity is authorized. This lets a
 /// SaaS admit only registered users, without ever weakening the Owner's ability to
 /// inspect their own key. A pairing token is single-use *per identity*: it binds to
-/// the first Executor that claims it, and only that identity may re-present it — so
+/// the first Client that claims it, and only that identity may re-present it — so
 /// the resume demo re-pairs, but a different party can't reuse a leaked token.
-pub(crate) fn authenticate_executor(hello: &Body, cfg: &OrchestratorConfig) -> Result<()> {
+pub(crate) fn authenticate_client(hello: &Body, cfg: &NodeConfig) -> Result<()> {
     let Body::Hello {
         pairing_token,
-        executor,
+        client,
         pubkey,
         sig,
         ..
@@ -224,29 +185,29 @@ pub(crate) fn authenticate_executor(hello: &Body, cfg: &OrchestratorConfig) -> R
         (Some(pk), Some(sig)) => {
             let vk = crate::identity::parse_pubkey(pk)?;
             crate::identity::verify_detached(&vk, cfg.pairing_token.as_bytes(), sig)
-                .map_err(|_| anyhow!("executor identity signature invalid"))?;
+                .map_err(|_| anyhow!("client identity signature invalid"))?;
         }
         _ => {
-            if cfg.authorized_executors.is_some() {
-                bail!("executor identity required but not provided");
+            if cfg.authorized_clients.is_some() {
+                bail!("client identity required but not provided");
             }
         }
     }
-    if let Some(allow) = &cfg.authorized_executors {
+    if let Some(allow) = &cfg.authorized_clients {
         let pk = pubkey.as_deref().unwrap_or("");
         if !allow.iter().any(|a| a == pk) {
-            bail!("executor not authorized");
+            bail!("client not authorized");
         }
     }
     // Single-use: a token binds to one identity. The same identity may re-present
-    // it (reconnect/resume); a different one is refused. A broker disables this so one
-    // join-token can admit many Executors (§10).
+    // it (reconnect/resume); a different one is refused. A node disables this so one
+    // join-token can admit many Clients (§10).
     if cfg.single_use_token
         && let Some(pk) = pubkey
     {
         let mut claimed = cfg.claimed_tokens.lock().unwrap();
         match claimed.get(pairing_token.as_str()) {
-            Some(owner) if owner != pk => bail!("pairing token already bound to another executor"),
+            Some(owner) if owner != pk => bail!("pairing token already bound to another client"),
             _ => {
                 claimed.insert(pairing_token.clone(), pk.clone());
             }
@@ -258,26 +219,23 @@ pub(crate) fn authenticate_executor(hello: &Body, cfg: &OrchestratorConfig) -> R
         .filter(|b| b.len() >= 8)
         .map(|b| wire::fingerprint(&b))
         .unwrap_or_else(|| "none".into());
-    println!(
-        "[orchestr] hello from executor '{}'  identity fp={fp}",
-        executor.name
-    );
+    println!("[node] hello from client '{}'  identity fp={fp}", client.name);
     Ok(())
 }
 
 // --- resume / cancel demo (two connections) -------------------------------
 
-async fn authenticate_hello<S>(read: &mut S, cfg: &OrchestratorConfig) -> Result<()>
+async fn authenticate_hello<S>(read: &mut S, cfg: &NodeConfig) -> Result<()>
 where
     S: Stream<Item = Result<Message, tokio_tungstenite::tungstenite::Error>> + Unpin,
 {
     let hello = wire::recv(read)
         .await?
         .ok_or_else(|| anyhow!("closed before hello"))?;
-    authenticate_executor(&hello.body, cfg)
+    authenticate_client(&hello.body, cfg)
 }
 
-async fn send_paired<S>(write: &mut S, cfg: &OrchestratorConfig) -> Result<String>
+async fn send_paired<S>(write: &mut S, cfg: &NodeConfig) -> Result<String>
 where
     S: Sink<Message> + Unpin,
     S::Error: std::error::Error + Send + Sync + 'static,
@@ -290,7 +248,7 @@ where
 /// Build a `paired` frame: assign a sid, mint a fresh operational key, have the
 /// root delegate it (1h), and sign the sid with it (the SSH-CA chain, §3).
 /// A fresh op key per call is what lets reconnects rotate keys without re-pairing.
-pub(crate) fn build_paired(cfg: &OrchestratorConfig) -> (String, Frame) {
+pub(crate) fn build_paired(cfg: &NodeConfig) -> (String, Frame) {
     let sid = format!("kw_sess_{}", &new_mid()[..8]);
     let op = SigningKey::generate(&mut rand_core::OsRng);
     let cert =
@@ -300,7 +258,7 @@ pub(crate) fn build_paired(cfg: &OrchestratorConfig) -> (String, Frame) {
         Some(sid.clone()),
         new_mid(),
         Body::Paired {
-            orchestrator: Peer {
+            node: Peer {
                 name: cfg.name.clone(),
                 version: None,
                 id: Some(cfg.id.clone()),
@@ -314,20 +272,20 @@ pub(crate) fn build_paired(cfg: &OrchestratorConfig) -> (String, Frame) {
 }
 
 /// Demonstrate §7: stream an intent, drop the socket mid-stream, let the
-/// Executor re-dial, resume from `last_seq`, then deliberately cancel a second
-/// intent. The Executor's producer keeps running across the drop, so resume
-/// replays the chunks the Orchestrator missed.
-pub async fn serve_resume_demo(listener: TcpListener, cfg: OrchestratorConfig) -> Result<()> {
+/// Client re-dial, resume from `last_seq`, then deliberately cancel a second
+/// intent. The Client's producer keeps running across the drop, so resume
+/// replays the chunks the Node missed.
+pub async fn serve_resume_demo(listener: TcpListener, cfg: NodeConfig) -> Result<()> {
     // ---- connection 1: stream, then drop mid-way ----
     let (s1, _) = listener.accept().await?;
     let (mut w1, mut r1) = accept_async(s1).await?.split();
     authenticate_hello(&mut r1, &cfg).await?;
     let sid1 = send_paired(&mut w1, &cfg).await?;
-    println!("[orchestr] paired (conn 1)  sid={sid1}");
+    println!("[node] paired (conn 1)  sid={sid1}");
 
     let mid = new_mid();
     let req = json!({"model": "gpt-4o", "messages": [{"role": "user", "content": "Stream a sentence long enough to span many chunks so we can interrupt it midway and resume."}], "stream": true});
-    println!("\n[orchestr] --> work mid={}…  model=gpt-4o", &mid[..8]);
+    println!("\n[node] --> work mid={}…  model=gpt-4o", &mid[..8]);
     wire::send(
         &mut w1,
         &Frame::new(
@@ -351,9 +309,9 @@ pub async fn serve_resume_demo(listener: TcpListener, cfg: OrchestratorConfig) -
             continue;
         }
         match frame.body {
-            Body::WorkAccepted {} => println!("[orchestr]     accepted"),
+            Body::WorkAccepted {} => println!("[node]     accepted"),
             Body::WorkChunk { seq, delta } => {
-                println!("[orchestr]     chunk seq={seq}  {:?}", chunk_text(&delta));
+                println!("[node]     chunk seq={seq}  {:?}", chunk_text(&delta));
                 last_seq = seq as i64;
                 got += 1;
                 if got >= 3 {
@@ -361,27 +319,27 @@ pub async fn serve_resume_demo(listener: TcpListener, cfg: OrchestratorConfig) -
                 }
             }
             Body::WorkDone { .. } => {
-                println!("[orchestr]     (completed before we could interrupt)");
+                println!("[node]     (completed before we could interrupt)");
                 break;
             }
             Body::WorkError { code, message, .. } => {
-                println!("[orchestr]     error {code}: {message}");
+                println!("[node]     error {code}: {message}");
                 return Ok(());
             }
             _ => {}
         }
     }
-    println!("[orchestr] !!! dropping the socket after seq={last_seq} — simulated channel loss\n");
+    println!("[node] !!! dropping the socket after seq={last_seq} — simulated channel loss\n");
     drop(w1);
     drop(r1);
 
-    // ---- connection 2: the Executor re-dials; resume ----
+    // ---- connection 2: the Client re-dials; resume ----
     let (s2, _) = listener.accept().await?;
     let (mut w2, mut r2) = accept_async(s2).await?.split();
     authenticate_hello(&mut r2, &cfg).await?;
     let sid2 = send_paired(&mut w2, &cfg).await?;
-    println!("[orchestr] executor reconnected; paired (conn 2)  sid={sid2}");
-    println!("[orchestr] <-- resume mid={}…  last_seq={last_seq}", &mid[..8]);
+    println!("[node] client reconnected; paired (conn 2)  sid={sid2}");
+    println!("[node] <-- resume mid={}…  last_seq={last_seq}", &mid[..8]);
     wire::send(
         &mut w2,
         &Frame::new(
@@ -407,18 +365,18 @@ pub async fn serve_resume_demo(listener: TcpListener, cfg: OrchestratorConfig) -
             Body::WorkChunk { seq, delta } => {
                 let t = chunk_text(&delta);
                 tail.push_str(t);
-                println!("[orchestr]     resumed seq={seq}  {t:?}");
+                println!("[node]     resumed seq={seq}  {t:?}");
             }
             Body::WorkDone { usage, .. } => {
-                println!("[orchestr]     done after resume; recovered tail (seq>{last_seq}) = {tail:?}");
+                println!("[node]     done after resume; recovered tail (seq>{last_seq}) = {tail:?}");
                 println!(
-                    "[orchestr]     usage in={} out={}",
+                    "[node]     usage in={} out={}",
                     usage.input_tokens, usage.output_tokens
                 );
                 break;
             }
             Body::WorkError { code, message, .. } => {
-                println!("[orchestr]     error {code}: {message}");
+                println!("[node]     error {code}: {message}");
                 break;
             }
             _ => {}
@@ -429,7 +387,7 @@ pub async fn serve_resume_demo(listener: TcpListener, cfg: OrchestratorConfig) -
     let mid2 = new_mid();
     let req2 = json!({"model": "gpt-4o", "messages": [{"role": "user", "content": "Begin a long answer that the owner will cancel partway through."}], "stream": true});
     println!(
-        "\n[orchestr] --> work mid={}…  model=gpt-4o (will cancel)",
+        "\n[node] --> work mid={}…  model=gpt-4o (will cancel)",
         &mid2[..8]
     );
     wire::send(
@@ -453,12 +411,12 @@ pub async fn serve_resume_demo(listener: TcpListener, cfg: OrchestratorConfig) -
             continue;
         }
         match frame.body {
-            Body::WorkAccepted {} => println!("[orchestr]     accepted"),
+            Body::WorkAccepted {} => println!("[node]     accepted"),
             Body::WorkChunk { seq, .. } => {
-                println!("[orchestr]     chunk seq={seq}");
+                println!("[node]     chunk seq={seq}");
                 got2 += 1;
                 if got2 >= 2 {
-                    println!("[orchestr]     >>> cancel mid={}…", &mid2[..8]);
+                    println!("[node]     >>> cancel mid={}…", &mid2[..8]);
                     wire::send(
                         &mut w2,
                         &Frame::new(
@@ -473,11 +431,11 @@ pub async fn serve_resume_demo(listener: TcpListener, cfg: OrchestratorConfig) -
                 }
             }
             Body::WorkError { code, message, .. } => {
-                println!("[orchestr]     terminated: {code} ({message})");
+                println!("[node]     terminated: {code} ({message})");
                 break;
             }
             Body::WorkDone { .. } => {
-                println!("[orchestr]     (finished before cancel took effect)");
+                println!("[node]     (finished before cancel took effect)");
                 break;
             }
             _ => {}
@@ -504,13 +462,13 @@ mod tests {
     use ed25519_dalek::SigningKey;
     use rand_core::OsRng;
 
-    fn cfg(authorized: Option<Vec<String>>) -> OrchestratorConfig {
-        OrchestratorConfig {
+    fn cfg(authorized: Option<Vec<String>>) -> NodeConfig {
+        NodeConfig {
             name: "o".into(),
-            id: "orch".into(),
+            id: "node".into(),
             pairing_token: "pt".into(),
             root: SigningKey::generate(&mut OsRng),
-            authorized_executors: authorized,
+            authorized_clients: authorized,
             claimed_tokens: Default::default(),
             single_use_token: true,
             intents: vec![],
@@ -520,7 +478,7 @@ mod tests {
     fn hello(token: &str, key: &SigningKey, with_sig: bool) -> Body {
         Body::Hello {
             pairing_token: token.into(),
-            executor: Peer {
+            client: Peer {
                 name: "e".into(),
                 version: None,
                 id: None,
@@ -538,18 +496,18 @@ mod tests {
     }
 
     #[test]
-    fn authorized_executor_accepted() {
+    fn authorized_client_accepted() {
         let k = SigningKey::generate(&mut OsRng);
         let c = cfg(Some(vec![pk_hex(&k)]));
-        assert!(authenticate_executor(&hello("pt", &k, true), &c).is_ok());
+        assert!(authenticate_client(&hello("pt", &k, true), &c).is_ok());
     }
 
     #[test]
-    fn unauthorized_executor_rejected() {
+    fn unauthorized_client_rejected() {
         let k = SigningKey::generate(&mut OsRng);
         let someone_else = pk_hex(&SigningKey::generate(&mut OsRng));
         let c = cfg(Some(vec![someone_else])); // allow-list does NOT include k
-        assert!(authenticate_executor(&hello("pt", &k, true), &c).is_err());
+        assert!(authenticate_client(&hello("pt", &k, true), &c).is_err());
     }
 
     #[test]
@@ -562,27 +520,27 @@ mod tests {
             let imposter = SigningKey::generate(&mut OsRng);
             *sig = Some(crate::identity::sign_detached(&imposter, b"pt"));
         }
-        assert!(authenticate_executor(&h, &c).is_err());
+        assert!(authenticate_client(&h, &c).is_err());
     }
 
     #[test]
     fn allowlist_requires_an_identity() {
         let k = SigningKey::generate(&mut OsRng);
         let c = cfg(Some(vec![pk_hex(&k)]));
-        assert!(authenticate_executor(&hello("pt", &k, false), &c).is_err()); // no sig
+        assert!(authenticate_client(&hello("pt", &k, false), &c).is_err()); // no sig
     }
 
     #[test]
     fn no_allowlist_accepts_valid_possession() {
         let k = SigningKey::generate(&mut OsRng);
-        assert!(authenticate_executor(&hello("pt", &k, true), &cfg(None)).is_ok());
+        assert!(authenticate_client(&hello("pt", &k, true), &cfg(None)).is_ok());
     }
 
     #[test]
     fn wrong_pairing_token_rejected() {
         let k = SigningKey::generate(&mut OsRng);
         let c = cfg(Some(vec![pk_hex(&k)]));
-        assert!(authenticate_executor(&hello("WRONG", &k, true), &c).is_err());
+        assert!(authenticate_client(&hello("WRONG", &k, true), &c).is_err());
     }
 
     #[test]
@@ -591,9 +549,9 @@ mod tests {
         let alice = SigningKey::generate(&mut OsRng);
         let bob = SigningKey::generate(&mut OsRng);
         // Alice claims the token, and may re-present it (reconnect / resume).
-        assert!(authenticate_executor(&hello("pt", &alice, true), &c).is_ok());
-        assert!(authenticate_executor(&hello("pt", &alice, true), &c).is_ok());
+        assert!(authenticate_client(&hello("pt", &alice, true), &c).is_ok());
+        assert!(authenticate_client(&hello("pt", &alice, true), &c).is_ok());
         // A different identity is refused the already-claimed token.
-        assert!(authenticate_executor(&hello("pt", &bob, true), &c).is_err());
+        assert!(authenticate_client(&hello("pt", &bob, true), &c).is_err());
     }
 }

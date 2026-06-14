@@ -1,11 +1,11 @@
-//! The Executor: runs on the Owner's side, holds the key, dials OUT to the
-//! Orchestrator, authenticates it (pinned Ed25519 identity, §9), enforces policy
+//! The Client: runs on the Owner's side, holds the key, dials OUT to the
+//! Node, authenticates it (pinned Ed25519 identity, §9), enforces policy
 //! (§6), injects the credential locally, and relays the provider stream (§5).
 //!
 //! Work is decoupled from the connection so a dropped channel SUSPENDS rather
 //! than fails (§7): each intent has a producer task that keeps pulling from the
 //! provider into a bounded ring buffer, and a per-connection delivery task that
-//! streams from that buffer. On reconnect the Orchestrator sends `resume` and a
+//! streams from that buffer. On reconnect the Node sends `resume` and a
 //! fresh delivery replays from `last_seq`. A deliberate `cancel` aborts; a
 //! dropped channel does not.
 
@@ -35,17 +35,17 @@ pub fn new_mid() -> String {
     uuid::Uuid::new_v4().to_string()
 }
 
-/// A structured status event from the running Executor. The CLI ignores these (it
+/// A structured status event from the running Client. The CLI ignores these (it
 /// prints), a UI streams them. Internally tagged so the frontend gets a clean TS
 /// discriminated union (`{ kind: "paired", ... }`). Never affects protocol behavior.
 #[derive(Clone, Debug, Serialize)]
 #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
-pub enum ExecutorEvent {
-    /// Dialing the Orchestrator.
+pub enum ClientEvent {
+    /// Dialing the Node.
     Connecting { url: String },
-    /// Paired, and the Orchestrator's identity chain verified against the pinned root.
+    /// Paired, and the Node's identity chain verified against the pinned root.
     Paired {
-        orchestrator: String,
+        node: String,
         root_fingerprint: String,
         sid: String,
     },
@@ -82,26 +82,26 @@ pub enum ExecutorEvent {
     ConnectionLost { pending: usize },
     /// Reconnecting to resume the suspended intents.
     Reconnecting { attempt: u32 },
-    /// The Executor stopped — clean close, fatal error, or giving up reconnecting.
+    /// The Client stopped — clean close, fatal error, or giving up reconnecting.
     Stopped { reason: String },
 }
 
-pub struct ExecutorConfig {
+pub struct ClientConfig {
     pub name: String,
     pub providers: Vec<String>,
     pub policy: Policy,
-    /// How the Executor gets each provider's credential. Held/resolved only here;
+    /// How the Client gets each provider's credential. Held/resolved only here;
     /// never serialized onto the wire.
     pub keys: KeySource,
-    /// The Executor's long-term identity key. Its public half is sent in `hello`
-    /// and signs the pairing token, so the Orchestrator can authenticate this
-    /// Executor (e.g. allow-list registered users, §9).
+    /// The Client's long-term identity key. Its public half is sent in `hello`
+    /// and signs the pairing token, so the Node can authenticate this
+    /// Client (e.g. allow-list registered users, §9).
     pub identity: SigningKey,
-    /// TOFU store of the Orchestrator's pinned identity key (None until first contact).
+    /// TOFU store of the Node's pinned identity key (None until first contact).
     pub pinned: Arc<Mutex<Option<VerifyingKey>>>,
     /// Optional structured-event sink. The CLI leaves this `None` (it prints to stdout);
-    /// a UI sets it to stream [`ExecutorEvent`]s. Purely observational.
-    pub events: Option<mpsc::UnboundedSender<ExecutorEvent>>,
+    /// a UI sets it to stream [`ClientEvent`]s. Purely observational.
+    pub events: Option<mpsc::UnboundedSender<ClientEvent>>,
 }
 
 #[derive(Default)]
@@ -162,13 +162,13 @@ struct Intent {
 struct Shared {
     store: Mutex<HashMap<String, Arc<Intent>>>,
     runtime: Mutex<Runtime>,
-    events: Option<mpsc::UnboundedSender<ExecutorEvent>>,
+    events: Option<mpsc::UnboundedSender<ClientEvent>>,
 }
 
 impl Shared {
     /// Forward a status event to the UI sink, if any. Best-effort: a closed receiver
-    /// is silently ignored (the executor keeps running regardless).
-    fn emit(&self, ev: ExecutorEvent) {
+    /// is silently ignored (the client keeps running regardless).
+    fn emit(&self, ev: ClientEvent) {
         if let Some(tx) = &self.events {
             let _ = tx.send(ev);
         }
@@ -182,7 +182,7 @@ enum Flow {
 
 /// Dial out, pair, and serve work — reconnecting to resume in-flight intents if
 /// the channel drops, up to a bounded number of attempts.
-pub async fn run(url: &str, pairing_token: &str, cfg: ExecutorConfig) -> Result<()> {
+pub async fn run(url: &str, pairing_token: &str, cfg: ClientConfig) -> Result<()> {
     let events = cfg.events.clone();
     let cfg = Arc::new(cfg);
     let shared = Arc::new(Shared {
@@ -191,7 +191,7 @@ pub async fn run(url: &str, pairing_token: &str, cfg: ExecutorConfig) -> Result<
         events,
     });
 
-    shared.emit(ExecutorEvent::Connecting { url: url.to_string() });
+    shared.emit(ClientEvent::Connecting { url: url.to_string() });
 
     let mut attempt = 0u32;
     let mut backoff = 200u64;
@@ -201,24 +201,24 @@ pub async fn run(url: &str, pairing_token: &str, cfg: ExecutorConfig) -> Result<
             Ok(Flow::Reconnect) | Err(_) => {
                 let pending = shared.store.lock().await.len();
                 if pending == 0 {
-                    shared.emit(ExecutorEvent::Stopped {
+                    shared.emit(ClientEvent::Stopped {
                         reason: "disconnected".into(),
                     });
                     return Ok(());
                 }
                 attempt += 1;
                 if attempt > 12 {
-                    shared.emit(ExecutorEvent::Stopped {
+                    shared.emit(ClientEvent::Stopped {
                         reason: format!("gave up reconnecting with {pending} intent(s) in flight"),
                     });
                     return Err(anyhow!(
                         "giving up reconnecting with {pending} intent(s) in flight"
                     ));
                 }
-                shared.emit(ExecutorEvent::ConnectionLost { pending });
-                shared.emit(ExecutorEvent::Reconnecting { attempt });
+                shared.emit(ClientEvent::ConnectionLost { pending });
+                shared.emit(ClientEvent::Reconnecting { attempt });
                 println!(
-                    "[executor] channel lost; {pending} intent(s) in flight, reconnecting (attempt {attempt})…"
+                    "[client] channel lost; {pending} intent(s) in flight, reconnecting (attempt {attempt})…"
                 );
                 sleep(Duration::from_millis(backoff)).await;
                 backoff = (backoff * 2).min(2000);
@@ -230,7 +230,7 @@ pub async fn run(url: &str, pairing_token: &str, cfg: ExecutorConfig) -> Result<
 async fn serve_once(
     url: &str,
     pairing_token: &str,
-    cfg: &Arc<ExecutorConfig>,
+    cfg: &Arc<ClientConfig>,
     shared: &Arc<Shared>,
 ) -> Result<Flow> {
     let (out, mut inbound) = transport::connect(url).await?;
@@ -238,36 +238,33 @@ async fn serve_once(
     out.send(hello_frame(cfg, pairing_token)).await.ok();
 
     let mut sid: Option<String> = None;
-    let mut orch_id = String::from("unknown");
+    let mut node_id = String::from("unknown");
     let mut authenticated = false;
 
     let flow = loop {
         match inbound.recv().await {
             Some(frame) => match frame.body {
                 Body::Paired {
-                    orchestrator,
+                    node,
                     root_pubkey,
                     op,
                     sig,
                 } => {
                     let s = frame.sid.clone().unwrap_or_default();
                     if let Err(e) = verify_chain_and_pin(&cfg.pinned, &s, &root_pubkey, &op, &sig).await {
-                        eprintln!("[executor] {e}");
-                        shared.emit(ExecutorEvent::Stopped {
+                        eprintln!("[client] {e}");
+                        shared.emit(ClientEvent::Stopped {
                             reason: e.to_string(),
                         });
                         break Flow::Stop;
                     }
-                    orch_id = orchestrator
-                        .id
-                        .clone()
-                        .unwrap_or_else(|| orchestrator.name.clone());
+                    node_id = node.id.clone().unwrap_or_else(|| node.name.clone());
                     let root_fingerprint = identity::parse_pubkey(&root_pubkey)
                         .map(|k| wire::fingerprint(&k.to_bytes()))
                         .unwrap_or_default();
-                    println!("[executor] paired  sid={s}  orchestrator={orch_id}");
-                    shared.emit(ExecutorEvent::Paired {
-                        orchestrator: orch_id.clone(),
+                    println!("[client] paired  sid={s}  node={node_id}");
+                    shared.emit(ClientEvent::Paired {
+                        node: node_id.clone(),
                         root_fingerprint,
                         sid: s.clone(),
                     });
@@ -297,7 +294,7 @@ async fn serve_once(
                         cfg.clone(),
                         shared.clone(),
                         out.clone(),
-                        orch_id.clone(),
+                        node_id.clone(),
                     );
                 }
                 Body::Resume { intent_mid, last_seq } => {
@@ -315,14 +312,14 @@ async fn serve_once(
                         intent.cancelled.store(true, Ordering::SeqCst);
                         intent.cancel.notify_one();
                         println!(
-                            "[executor] CANCEL {intent_mid} (aborting our read; note: provider may keep billing)"
+                            "[client] CANCEL {intent_mid} (aborting our read; note: provider may keep billing)"
                         );
                     }
                 }
                 Body::Close { reason } => {
-                    println!("[executor] channel closed by orchestrator: {reason}");
-                    shared.emit(ExecutorEvent::Stopped {
-                        reason: format!("closed by orchestrator: {reason}"),
+                    println!("[client] channel closed by node: {reason}");
+                    shared.emit(ClientEvent::Stopped {
+                        reason: format!("closed by node: {reason}"),
                     });
                     break Flow::Stop;
                 }
@@ -338,7 +335,7 @@ async fn serve_once(
                         cfg.clone(),
                         shared.clone(),
                         out.clone(),
-                        orch_id.clone(),
+                        node_id.clone(),
                     );
                 }
                 _ => {}
@@ -350,14 +347,14 @@ async fn serve_once(
     Ok(flow)
 }
 
-fn hello_frame(cfg: &ExecutorConfig, pairing_token: &str) -> Frame {
+fn hello_frame(cfg: &ClientConfig, pairing_token: &str) -> Frame {
     let policy_canon = serde_json::to_string(&cfg.policy).unwrap_or_default();
     Frame::new(
         None,
         new_mid(),
         Body::Hello {
             pairing_token: pairing_token.to_string(),
-            executor: Peer {
+            client: Peer {
                 name: cfg.name.clone(),
                 version: Some(env!("CARGO_PKG_VERSION").to_string()),
                 id: None,
@@ -366,8 +363,8 @@ fn hello_frame(cfg: &ExecutorConfig, pairing_token: &str) -> Frame {
             policy_digest: wire::policy_digest(&policy_canon),
             pubkey: Some(wire::hex(&cfg.identity.verifying_key().to_bytes())),
             sig: Some(identity::sign_detached(&cfg.identity, pairing_token.as_bytes())),
-            // Routing token for a multi-tenant broker (§8); the user puts the same
-            // value in their app's API-key slot. Single-tenant orchestrators ignore it.
+            // Routing token for a multi-tenant node (§8); the user puts the same
+            // value in their app's API-key slot. Single-tenant nodes ignore it.
             route_token: std::env::var("KEYWARD_ROUTE_TOKEN")
                 .ok()
                 .filter(|s| !s.is_empty()),
@@ -381,10 +378,10 @@ fn spawn_work(
     sid: Option<String>,
     provider: String,
     request: Value,
-    cfg: Arc<ExecutorConfig>,
+    cfg: Arc<ClientConfig>,
     shared: Arc<Shared>,
     out: mpsc::Sender<Frame>,
-    orchestrator: String,
+    node: String,
 ) {
     tokio::spawn(async move {
         let model = request
@@ -401,14 +398,14 @@ fn spawn_work(
                 spent_usd: r.spent_usd,
                 now_rfc3339: "",
             };
-            cfg.policy.check(&provider, &model, &orchestrator, live).err()
+            cfg.policy.check(&provider, &model, &node, live).err()
         };
         if let Some(d) = denied {
             println!(
-                "[executor] DENY  provider={provider} model={model}  ->  {}",
+                "[client] DENY  provider={provider} model={model}  ->  {}",
                 d.code()
             );
-            shared.emit(ExecutorEvent::Denied {
+            shared.emit(ClientEvent::Denied {
                 mid: mid.clone(),
                 provider: provider.clone(),
                 model: model.clone(),
@@ -432,8 +429,8 @@ fn spawn_work(
         let _ = out
             .send(Frame::new(sid.clone(), mid.clone(), Body::WorkAccepted {}))
             .await;
-        println!("[executor] ACCEPT provider={provider} model={model}  (key injected locally)");
-        shared.emit(ExecutorEvent::Accepted {
+        println!("[client] ACCEPT provider={provider} model={model}  (key injected locally)");
+        shared.emit(ClientEvent::Accepted {
             mid: mid.clone(),
             provider: provider.clone(),
             model: model.clone(),
@@ -459,20 +456,20 @@ fn spawn_work(
     });
 }
 
-/// Serve a sealed work intent (§9): decrypt with the Executor's identity-derived key,
+/// Serve a sealed work intent (§9): decrypt with the Client's identity-derived key,
 /// enforce policy, call the provider, and seal each response chunk back over the same
-/// channel. The broker only ever relayed ciphertext. A decryption failure is dropped —
-/// the broker can't help, and there is no shared channel to report an error over.
+/// channel. The node only ever relayed ciphertext. A decryption failure is dropped —
+/// the node can't help, and there is no shared channel to report an error over.
 #[cfg(feature = "seal")]
 #[allow(clippy::too_many_arguments)]
 fn spawn_sealed_work(
     mid: String,
     sid: Option<String>,
     blob: String,
-    cfg: Arc<ExecutorConfig>,
+    cfg: Arc<ClientConfig>,
     shared: Arc<Shared>,
     out: mpsc::Sender<Frame>,
-    orchestrator: String,
+    node: String,
 ) {
     tokio::spawn(async move {
         // envelope = hex(ephemeral_pubkey)(64 chars) ‖ sealed(nonce‖ciphertext)
@@ -514,17 +511,17 @@ fn spawn_sealed_work(
                 spent_usd: r.spent_usd,
                 now_rfc3339: "",
             };
-            cfg.policy.check(&provider, &model, &orchestrator, live).err()
+            cfg.policy.check(&provider, &model, &node, live).err()
         };
         if let Some(d) = denied {
-            shared.emit(ExecutorEvent::Denied {
+            shared.emit(ClientEvent::Denied {
                 mid: mid.clone(),
                 provider: provider.clone(),
                 model: model.clone(),
                 code: d.code().into(),
             });
             // Terminals are cleartext: they carry only metadata (a code), never content,
-            // and let the blind broker manage the relay lifecycle.
+            // and let the blind node manage the relay lifecycle.
             let _ = out
                 .send(Frame::new(
                     sid.clone(),
@@ -539,20 +536,20 @@ fn spawn_sealed_work(
             return;
         }
         shared.runtime.lock().await.rpm_used += 1;
-        shared.emit(ExecutorEvent::Accepted {
+        shared.emit(ClientEvent::Accepted {
             mid: mid.clone(),
             provider: provider.clone(),
             model: model.clone(),
         });
         println!(
-            "[executor] ACCEPT (sealed) provider={provider} model={model}  (decrypted locally; broker saw only ciphertext)"
+            "[client] ACCEPT (sealed) provider={provider} model={model}  (decrypted locally; node saw only ciphertext)"
         );
 
         let key = cfg.keys.resolve(&provider);
         let mut rx = match provider::call(&provider, &model, &request, &key).await {
             Ok(rx) => rx,
             Err(e) => {
-                shared.emit(ExecutorEvent::WorkFailed {
+                shared.emit(ClientEvent::WorkFailed {
                     mid: mid.clone(),
                     code: "provider_network".into(),
                     message: e.to_string(),
@@ -584,7 +581,7 @@ fn spawn_sealed_work(
                         r.spent_usd += cost;
                         r.spent_usd
                     };
-                    shared.emit(ExecutorEvent::Done {
+                    shared.emit(ClientEvent::Done {
                         mid: mid.clone(),
                         provider: provider.clone(),
                         model: model.clone(),
@@ -594,7 +591,7 @@ fn spawn_sealed_work(
                         spent_usd: spent,
                     });
                     println!(
-                        "[executor] DONE (sealed) {mid}  usage in={} out={}  cost=${cost:.5}",
+                        "[client] DONE (sealed) {mid}  usage in={} out={}  cost=${cost:.5}",
                         usage.input_tokens, usage.output_tokens
                     );
                     let _ = out
@@ -630,7 +627,7 @@ fn spawn_resume(mid: String, sid: Option<String>, shared: Arc<Shared>, out: mpsc
         let intent = shared.store.lock().await.get(&mid).cloned();
         match intent {
             Some(intent) => {
-                println!("[executor] RESUME {mid} from seq={start}");
+                println!("[client] RESUME {mid} from seq={start}");
                 deliver(intent, shared, out, sid, mid, start).await;
             }
             None => {
@@ -655,7 +652,7 @@ fn spawn_producer(
     provider: String,
     model: String,
     request: Value,
-    cfg: Arc<ExecutorConfig>,
+    cfg: Arc<ClientConfig>,
     shared: Arc<Shared>,
     mid: String,
 ) {
@@ -665,7 +662,7 @@ fn spawn_producer(
         let mut rx = match provider::call(&provider, &model, &request, &key).await {
             Ok(rx) => rx,
             Err(e) => {
-                shared.emit(ExecutorEvent::WorkFailed {
+                shared.emit(ClientEvent::WorkFailed {
                     mid: mid.clone(),
                     code: "provider_network".into(),
                     message: e.to_string(),
@@ -681,15 +678,15 @@ fn spawn_producer(
 
         loop {
             if intent.cancelled.load(Ordering::SeqCst) {
-                println!("[executor] {mid} cancelled — stopping read");
-                shared.emit(ExecutorEvent::WorkFailed {
+                println!("[client] {mid} cancelled — stopping read");
+                shared.emit(ClientEvent::WorkFailed {
                     mid: mid.clone(),
                     code: "cancelled".into(),
-                    message: "cancelled by orchestrator".into(),
+                    message: "cancelled by node".into(),
                 });
                 intent.buf.lock().await.terminal = Some(Terminal::Error {
                     code: "cancelled".into(),
-                    message: "cancelled by orchestrator".into(),
+                    message: "cancelled by node".into(),
                     provider_status: None,
                 });
                 return;
@@ -707,8 +704,8 @@ fn spawn_producer(
                             r.spent_usd
                         };
                         let n = { let mut b = intent.buf.lock().await; b.terminal = Some(Terminal::Done { result, usage: usage.clone() }); b.next_seq };
-                        println!("[executor] DONE  {mid}: {n} chunks  usage in={} out={}  cost=${cost:.5}  window_spent=${spent:.5}", usage.input_tokens, usage.output_tokens);
-                        shared.emit(ExecutorEvent::Done {
+                        println!("[client] DONE  {mid}: {n} chunks  usage in={} out={}  cost=${cost:.5}  window_spent=${spent:.5}", usage.input_tokens, usage.output_tokens);
+                        shared.emit(ClientEvent::Done {
                             mid: mid.clone(),
                             provider: provider.clone(),
                             model: model.clone(),
@@ -720,7 +717,7 @@ fn spawn_producer(
                         return;
                     }
                     None => {
-                        shared.emit(ExecutorEvent::WorkFailed { mid: mid.clone(), code: "provider_network".into(), message: "stream ended".into() });
+                        shared.emit(ClientEvent::WorkFailed { mid: mid.clone(), code: "provider_network".into(), message: "stream ended".into() });
                         intent.buf.lock().await.terminal = Some(Terminal::Error { code: "provider_network".into(), message: "stream ended".into(), provider_status: None });
                         return;
                     }
@@ -828,7 +825,7 @@ fn terminal_frame(sid: Option<String>, mid: String, t: &Terminal) -> Frame {
     }
 }
 
-/// Pin the Orchestrator's **root** key (TOFU), verify the connection's operational
+/// Pin the Node's **root** key (TOFU), verify the connection's operational
 /// key chains to it and signed the assigned `sid`. A reconnect under a different
 /// root, an op key not delegated by the pinned root, an expired op key, or a bad
 /// `sid` signature is refused — a stolen pairing token alone can't satisfy this
@@ -850,7 +847,7 @@ async fn verify_chain_and_pin(
         && !expected.eq_ignore_ascii_case(&root_fp)
     {
         return Err(anyhow!(
-            "orchestrator root fingerprint {root_fp} != expected {expected} — refusing to bind"
+            "node root fingerprint {root_fp} != expected {expected} — refusing to bind"
         ));
     }
 
@@ -865,7 +862,7 @@ async fn verify_chain_and_pin(
             }
             Some(_) => {}
             None => {
-                println!("[executor] TOFU: pinning orchestrator ROOT key  fp={root_fp}");
+                println!("[client] TOFU: pinning node ROOT key  fp={root_fp}");
                 *guard = Some(root);
             }
         }
@@ -874,7 +871,7 @@ async fn verify_chain_and_pin(
     let op_key = identity::verify_op_cert(&root, op, identity::now_unix())?;
     identity::verify_sid_sig(&op_key, sid, sig_hex)?;
     println!(
-        "[executor] verified op-key fp={} via pinned root fp={}",
+        "[client] verified op-key fp={} via pinned root fp={}",
         wire::fingerprint(&op_key.to_bytes()),
         wire::fingerprint(&root.to_bytes())
     );
@@ -888,7 +885,7 @@ fn load_policy() -> Result<Policy> {
         let text = std::fs::read_to_string(&path).map_err(|e| anyhow!("read policy file {path}: {e}"))?;
         let policy: Policy =
             serde_json::from_str(&text).map_err(|e| anyhow!("parse policy file {path}: {e}"))?;
-        println!("[executor] loaded policy from {path}");
+        println!("[client] loaded policy from {path}");
         return Ok(policy);
     }
     let providers: Vec<String> = std::env::var("KEYWARD_PROVIDERS")
@@ -912,10 +909,10 @@ fn load_policy() -> Result<Policy> {
     })
 }
 
-/// Standalone executor: dial a real Orchestrator using env config.
+/// Standalone client: dial a real Node using env config.
 pub async fn run_cli() -> Result<()> {
-    let url = std::env::var("KEYWARD_ORCH_URL")
-        .map_err(|_| anyhow!("set KEYWARD_ORCH_URL, e.g. ws://127.0.0.1:8787"))?;
+    let url = std::env::var("KEYWARD_NODE_URL")
+        .map_err(|_| anyhow!("set KEYWARD_NODE_URL, e.g. ws://127.0.0.1:8787"))?;
     let token = std::env::var("KEYWARD_PAIRING_TOKEN").map_err(|_| anyhow!("set KEYWARD_PAIRING_TOKEN"))?;
 
     // Owner policy: a JSON file at KEYWARD_POLICY, else a sensible built-in default
@@ -924,12 +921,12 @@ pub async fn run_cli() -> Result<()> {
     let providers: Vec<String> = policy.providers.clone().unwrap_or_default();
     let identity = identity::load_or_create_identity();
     println!(
-        "[executor] identity fp={}  (give the orchestrator this pubkey to be allow-listed: {})",
+        "[client] identity fp={}  (give the node this pubkey to be allow-listed: {})",
         wire::fingerprint(&identity.verifying_key().to_bytes()),
         wire::hex(&identity.verifying_key().to_bytes())
     );
-    let cfg = ExecutorConfig {
-        name: "keyward-exec".into(),
+    let cfg = ClientConfig {
+        name: "keyward-client".into(),
         providers,
         policy,
         keys: KeySource::Keychain,
@@ -937,7 +934,7 @@ pub async fn run_cli() -> Result<()> {
         pinned: Arc::new(Mutex::new(None)),
         events: None,
     };
-    println!("[executor] dialing {url} …  (keys resolved from the OS keychain, then env)");
+    println!("[client] dialing {url} …  (keys resolved from the OS keychain, then env)");
     run(&url, &token, cfg).await
 }
 

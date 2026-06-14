@@ -1,4 +1,4 @@
-//! Transport selection for the Executor. It always dials OUT over exactly one
+//! Transport selection for the Client. It always dials OUT over exactly one
 //! bidirectional channel (§1); both adapters yield the same `(out, inbound)` `Frame`
 //! channels, so `serve_once` is transport-agnostic. The URL scheme picks the adapter:
 //! `ws://` / `wss://` → WebSocket; `grpc://` / `grpcs://` → gRPC (feature `grpc`).
@@ -23,7 +23,7 @@ pub async fn connect(url: &str) -> Result<(mpsc::Sender<Frame>, mpsc::Receiver<F
         grpc_connect(url).await
     } else {
         Err(anyhow!(
-            "unsupported orchestrator URL scheme: {url} (use ws://, wss://, grpc:// or grpcs://)"
+            "unsupported node URL scheme: {url} (use ws://, wss://, grpc:// or grpcs://)"
         ))
     }
 }

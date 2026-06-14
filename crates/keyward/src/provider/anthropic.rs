@@ -1,6 +1,6 @@
 //! Anthropic Messages adapter — Keyward's second native dialect.
 //!
-//! The point of having two dialects is to prove the architecture: the Executor
+//! The point of having two dialects is to prove the architecture: the Client
 //! relays the provider's native SSE events verbatim and only a small per-dialect
 //! *usage extractor* differs. Anthropic's is the awkward one — usage is split
 //! across events, and the cache fields appear in BOTH `message_start` and

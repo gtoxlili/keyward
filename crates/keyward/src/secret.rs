@@ -1,17 +1,17 @@
-//! Provider-credential storage for the local Executor.
+//! Provider-credential storage for the local Client.
 //!
 //! Best practice (2026): keep the key in the OS keychain, not a dotenv/env var.
-//! The Executor resolves a per-provider credential from the keychain first, then
+//! The Client resolves a per-provider credential from the keychain first, then
 //! falls back to an env var; it is always wrapped in a `SecretString` (redacted
 //! Debug, zeroized on drop) and is never read from argv. Keys are resolved per
-//! provider, so one Executor can front several providers (one credential each).
+//! provider, so one Client can front several providers (one credential each).
 
 use anyhow::{Result, anyhow};
 use secrecy::{ExposeSecret, SecretString};
 
 const SERVICE: &str = "keyward";
 
-/// Where the Executor gets the credential for a provider call.
+/// Where the Client gets the credential for a provider call.
 pub enum KeySource {
     /// A single fixed credential (the demo / tests).
     Fixed(SecretString),
@@ -81,10 +81,10 @@ pub fn delete_key(provider: &str) -> Result<()> {
         .map_err(|e| anyhow!("keychain delete failed: {e}"))
 }
 
-/// Keychain entry name for the Executor's long-term identity seed (32 bytes, hex).
+/// Keychain entry name for the Client's long-term identity seed (32 bytes, hex).
 const IDENTITY: &str = "__identity__";
 
-/// Load the persisted Executor identity seed: `KEYWARD_IDENTITY_SEED` first (for
+/// Load the persisted Client identity seed: `KEYWARD_IDENTITY_SEED` first (for
 /// headless hosts that pin a fixed identity), then the OS keychain.
 pub fn load_identity_seed() -> Option<String> {
     if let Ok(s) = std::env::var("KEYWARD_IDENTITY_SEED")
@@ -95,7 +95,7 @@ pub fn load_identity_seed() -> Option<String> {
     keyring::Entry::new(SERVICE, IDENTITY).ok()?.get_password().ok()
 }
 
-/// Persist the Executor identity seed in the OS keychain.
+/// Persist the Client identity seed in the OS keychain.
 pub fn store_identity_seed(seed_hex: &str) -> Result<()> {
     keyring::Entry::new(SERVICE, IDENTITY)
         .and_then(|e| e.set_password(seed_hex))

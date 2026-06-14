@@ -1,19 +1,19 @@
-//! # Keyward Orchestrator SDK
+//! # Keyward Node SDK
 //!
-//! Integrate your app as the **Orchestrator** — the brain that decides what to do
-//! but never holds the key. You bind a listener the Owner's **Executor** dials into,
+//! Integrate your app as the **Node** — the brain that decides what to do
+//! but never holds the key. You bind a listener the Owner's **Client** dials into,
 //! pair, then submit work intents and stream the provider's native response back.
-//! The key stays on the Executor.
+//! The key stays on the Client.
 //!
 //! ```no_run
 //! # async fn run() -> anyhow::Result<()> {
 //! use keyward_sdk::{serve_one, Config, Event};
 //! use tokio::net::TcpListener;
 //!
-//! let cfg = Config::new("my-app", "orch_myapp", "pt_one_time_token");
+//! let cfg = Config::new("my-app", "node_myapp", "pt_one_time_token");
 //! println!("root fingerprint: {}", cfg.root_fingerprint());
 //! let listener = TcpListener::bind("127.0.0.1:8787").await?;
-//! let session = serve_one(&listener, &cfg).await?; // waits for an executor to pair
+//! let session = serve_one(&listener, &cfg).await?; // waits for an client to pair
 //!
 //! let mut rx = session
 //!     .submit("openai", serde_json::json!({
@@ -49,21 +49,21 @@ use tokio::net::TcpListener;
 use tokio::sync::{Mutex, mpsc};
 use tokio_tungstenite::accept_async;
 
-use identity::{authenticate_executor, build_paired, new_mid};
+use identity::{authenticate_client, build_paired, new_mid};
 
-/// Orchestrator configuration.
+/// Node configuration.
 pub struct Config {
-    /// Human-readable app name (sent to the Executor).
+    /// Human-readable app name (sent to the Client).
     pub name: String,
-    /// Stable orchestrator id (the Executor's policy may scope to it).
+    /// Stable node id (the Client's policy may scope to it).
     pub id: String,
-    /// One-time pairing token the Owner pastes into their Executor.
+    /// One-time pairing token the Owner pastes into their Client.
     pub pairing_token: String,
-    /// Long-term root identity. The Executor pins this on first contact.
+    /// Long-term root identity. The Client pins this on first contact.
     pub root: SigningKey,
-    /// Optional allow-list of authorized Executor identity pubkeys (hex). `None`
-    /// accepts any Executor that proves possession of its key.
-    pub authorized_executors: Option<Vec<String>>,
+    /// Optional allow-list of authorized Client identity pubkeys (hex). `None`
+    /// accepts any Client that proves possession of its key.
+    pub authorized_clients: Option<Vec<String>>,
 }
 
 impl Config {
@@ -74,11 +74,11 @@ impl Config {
             id: id.into(),
             pairing_token: pairing_token.into(),
             root: SigningKey::generate(&mut rand_core::OsRng),
-            authorized_executors: None,
+            authorized_clients: None,
         }
     }
 
-    /// This orchestrator's root fingerprint — show it to the Owner so they can
+    /// This node's root fingerprint — show it to the Owner so they can
     /// confirm it out of band when pairing.
     pub fn root_fingerprint(&self) -> String {
         identity::root_fingerprint(self)
@@ -95,15 +95,15 @@ pub enum Event {
     Error(String),
 }
 
-/// A paired session with one Executor. Submit work and stream native results.
+/// A paired session with one Client. Submit work and stream native results.
 pub struct Session {
     out: mpsc::Sender<Frame>,
     sid: String,
     pending: Arc<Mutex<HashMap<String, mpsc::Sender<Event>>>>,
 }
 
-/// Accept ONE Executor dialing into `listener` over **WebSocket**, authenticate + pair
-/// it, and return a `Session`. (v0: one Executor per session.)
+/// Accept ONE Client dialing into `listener` over **WebSocket**, authenticate + pair
+/// it, and return a `Session`. (v0: one Client per session.)
 pub async fn serve_one(listener: &TcpListener, cfg: &Config) -> Result<Session> {
     let (stream, _) = listener.accept().await?;
     let (mut write, mut read) = accept_async(stream).await?.split();
@@ -122,7 +122,7 @@ pub async fn serve_one(listener: &TcpListener, cfg: &Config) -> Result<Session> 
             tokio::select! {
                 biased;
                 // Consumer dropped the receiver (e.g. auth rejected): stop and drop
-                // `read` so the socket closes and the Executor sees the rejection.
+                // `read` so the socket closes and the Client sees the rejection.
                 _ = in_tx.closed() => break,
                 msg = wire::recv(&mut read) => match msg {
                     Ok(Some(frame)) => {
@@ -139,7 +139,7 @@ pub async fn serve_one(listener: &TcpListener, cfg: &Config) -> Result<Session> 
     pair_and_run(out, in_rx, cfg).await
 }
 
-/// Accept ONE Executor over **gRPC** at `addr`, authenticate + pair it, and return a
+/// Accept ONE Client over **gRPC** at `addr`, authenticate + pair it, and return a
 /// `Session`. Same protocol and `Session` API — only the transport differs (spec §1).
 /// Requires the `grpc` feature.
 #[cfg(feature = "grpc")]
@@ -149,7 +149,7 @@ pub async fn serve_one_grpc(addr: std::net::SocketAddr, cfg: &Config) -> Result<
 }
 
 /// Shared pairing + session loop over an already-established `(out, inbound)` frame
-/// channel pair — transport-agnostic. Receives `hello`, authenticates the Executor,
+/// channel pair — transport-agnostic. Receives `hello`, authenticates the Client,
 /// signs and sends `paired`, then demultiplexes inbound work frames to per-intent
 /// receivers until the channel closes.
 async fn pair_and_run(
@@ -161,11 +161,11 @@ async fn pair_and_run(
         .recv()
         .await
         .ok_or_else(|| anyhow!("closed before hello"))?;
-    authenticate_executor(&hello.body, cfg)?;
+    authenticate_client(&hello.body, cfg)?;
     let (sid, paired) = build_paired(cfg);
     out.send(paired)
         .await
-        .map_err(|_| anyhow!("failed to send paired (executor went away)"))?;
+        .map_err(|_| anyhow!("failed to send paired (client went away)"))?;
 
     let pending: Arc<Mutex<HashMap<String, mpsc::Sender<Event>>>> = Arc::new(Mutex::new(HashMap::new()));
     {
@@ -175,7 +175,7 @@ async fn pair_and_run(
                 route(&pending, frame).await;
             }
             for (_, tx) in pending.lock().await.drain() {
-                let _ = tx.send(Event::Error("executor disconnected".into())).await;
+                let _ = tx.send(Event::Error("client disconnected".into())).await;
             }
         });
     }

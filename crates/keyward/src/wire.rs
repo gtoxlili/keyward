@@ -74,7 +74,7 @@ pub fn fingerprint(pubkey: &[u8]) -> String {
     [&h[0..4], &h[4..8], &h[8..12], &h[12..16]].join("-")
 }
 
-/// `sha256:…` over the canonical policy bytes (§3). Lets the Orchestrator notice
+/// `sha256:…` over the canonical policy bytes (§3). Lets the Node notice
 /// the limits changed without the Owner having to reveal them.
 pub fn policy_digest(canonical: &str) -> String {
     let mut h = Sha256::new();

@@ -17,7 +17,7 @@ pub struct Peer {
     pub name: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub version: Option<String>,
-    /// Stable identity of the peer (e.g. `orch_…`). Optional on `executor`.
+    /// Stable identity of the peer (e.g. `node_…`). Optional on `client`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub id: Option<String>,
 }
@@ -32,13 +32,13 @@ pub struct Usage {
 }
 
 /// A root-signed delegation of an operational key (§3, SSH-CA pattern). The root
-/// signs `op_pubkey ‖ not_after`; the Executor verifies that against the pinned
+/// signs `op_pubkey ‖ not_after`; the Client verifies that against the pinned
 /// root, so operational keys can rotate without the Owner re-pairing.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpCert {
     /// Operational public key, hex Ed25519.
     pub pubkey: String,
-    /// Expiry, Unix seconds. The Executor refuses an expired operational key.
+    /// Expiry, Unix seconds. The Client refuses an expired operational key.
     pub not_after: i64,
     /// The root's signature over the canonical cert bytes, hex.
     pub root_sig: String,
@@ -73,87 +73,87 @@ impl Frame {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum Body {
-    /// Executor → Orchestrator: pairing handshake (§3).
+    /// Client → Node: pairing handshake (§3).
     Hello {
         pairing_token: String,
-        executor: Peer,
+        client: Peer,
         providers: Vec<String>,
         policy_digest: String,
-        /// Executor's long-term identity pubkey, hex Ed25519. Lets the Orchestrator
-        /// authenticate the Executor (§9) — e.g. allow-list registered users.
+        /// Client's long-term identity pubkey, hex Ed25519. Lets the Node
+        /// authenticate the Client (§9) — e.g. allow-list registered users.
         #[serde(skip_serializing_if = "Option::is_none")]
         pubkey: Option<String>,
-        /// Executor's signature over the `pairing_token`, proving possession of the
-        /// `pubkey` identity (hex). Required when the Orchestrator authenticates
-        /// Executors.
+        /// Client's signature over the `pairing_token`, proving possession of the
+        /// `pubkey` identity (hex). Required when the Node authenticates
+        /// Clients.
         #[serde(skip_serializing_if = "Option::is_none")]
         sig: Option<String>,
-        /// Optional routing token the Executor advertises to a multi-tenant **broker**
-        /// (§10): the broker maps `route_token → this connection`, so a shared/public
-        /// Orchestrator can route a request — which carries the token in its bearer
-        /// header — to the right Executor. Absent ⇒ the broker derives a token from
-        /// `pubkey`. Ignored by a single-tenant Orchestrator.
+        /// Optional routing token the Client advertises to a multi-tenant **node**
+        /// (§10): the node maps `route_token → this connection`, so a shared/public
+        /// Node can route a request — which carries the token in its bearer
+        /// header — to the right Client. Absent ⇒ the node derives a token from
+        /// `pubkey`. Ignored by a single-tenant Node.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         route_token: Option<String>,
     },
-    /// Orchestrator → Executor: session opened (§3).
+    /// Node → Client: session opened (§3).
     ///
-    /// Resolves the §9 open question with the SSH-CA pattern: the Executor pins the
+    /// Resolves the §9 open question with the SSH-CA pattern: the Client pins the
     /// long-term `root_pubkey` on first contact (TOFU); each connection presents a
     /// short-lived operational key (`op`) delegated by the root, which signs the
     /// freshly-assigned `sid`. A stolen pairing token alone is useless (binding needs
-    /// a key chaining to the pinned root), and the Orchestrator can rotate operational
+    /// a key chaining to the pinned root), and the Node can rotate operational
     /// keys / autoscale across reconnects without forcing the Owner to re-pair.
     Paired {
-        orchestrator: Peer,
-        /// Long-term root identity, hex Ed25519. Pinned by the Executor (TOFU).
+        node: Peer,
+        /// Long-term root identity, hex Ed25519. Pinned by the Client (TOFU).
         root_pubkey: String,
         /// Operational key for this connection + its root-signed delegation.
         op: OpCert,
         /// Operational key's detached signature over the assigned `sid`, hex.
         sig: String,
     },
-    /// Orchestrator → Executor: perform one provider call (§4).
+    /// Node → Client: perform one provider call (§4).
     Work {
         provider: String,
         /// Provider-native request body, MINUS any credential (§4).
         request: Value,
     },
-    /// Executor → Orchestrator: intent passed policy, provider call started (§5).
+    /// Client → Node: intent passed policy, provider call started (§5).
     WorkAccepted {},
-    /// Executor → Orchestrator: one streamed chunk (§5).
+    /// Client → Node: one streamed chunk (§5).
     WorkChunk {
         /// Monotonic per-intent sequence, from 0. Drives gap detection and resume.
         seq: u64,
         /// Provider-native chunk, relayed verbatim.
         delta: Value,
     },
-    /// Executor → Orchestrator: terminal success (§5).
+    /// Client → Node: terminal success (§5).
     WorkDone {
         #[serde(skip_serializing_if = "Option::is_none")]
         result: Option<Value>,
         usage: Usage,
     },
-    /// Executor → Orchestrator: terminal failure (§5, §8).
+    /// Client → Node: terminal failure (§5, §8).
     WorkError {
         code: String,
         message: String,
         #[serde(skip_serializing_if = "Option::is_none")]
         provider_status: Option<u16>,
     },
-    /// Orchestrator → Executor: resume a dropped intent from `last_seq` (§7).
+    /// Node → Client: resume a dropped intent from `last_seq` (§7).
     /// `last_seq = -1` means "from the beginning".
     Resume { intent_mid: String, last_seq: i64 },
-    /// Orchestrator → Executor: deliberately cancel an in-flight intent (§7).
+    /// Node → Client: deliberately cancel an in-flight intent (§7).
     /// Distinct from a dropped channel: a drop suspends, a `cancel` aborts.
     Cancel { intent_mid: String },
     /// Either side: orderly teardown (§7).
     Close { reason: String },
     /// Envelope-level fault (§8). Never closes the channel by itself.
     Error { code: String, message: String },
-    /// Opaque end-to-end ciphertext for the trustless-broker case (§9/§10): the broker
-    /// relays it by `mid` without decrypting. Requester→Executor it carries the sealed
-    /// work (`hex(ephemeral_pubkey) ‖ sealed`); Executor→Requester, the sealed response
+    /// Opaque end-to-end ciphertext for the trustless-node case (§9/§10): the node
+    /// relays it by `mid` without decrypting. Requester→Client it carries the sealed
+    /// work (`hex(ephemeral_pubkey) ‖ sealed`); Client→Requester, the sealed response
     /// chunks/terminal. The plaintext shape is the seal layer's business, not the wire's.
     Sealed { blob: String },
 }
@@ -162,8 +162,8 @@ pub enum Body {
 // Policy (§6)
 // ---------------------------------------------------------------------------
 
-/// Owner-defined limits, enforced at the Executor, not changeable by the
-/// Orchestrator (§6). All fields optional; absence = unrestricted for that
+/// Owner-defined limits, enforced at the Client, not changeable by the
+/// Node (§6). All fields optional; absence = unrestricted for that
 /// dimension (but implementations SHOULD default-deny on budget).
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Policy {
@@ -173,7 +173,7 @@ pub struct Policy {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub models: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub orchestrators: Option<Vec<String>>,
+    pub nodes: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub budget: Option<Budget>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -204,7 +204,7 @@ pub struct Rate {
 pub enum Denied {
     Provider,
     Model,
-    Orchestrator,
+    Node,
     Expired,
     Rate,
     Budget,
@@ -216,7 +216,7 @@ impl Denied {
         match self {
             Denied::Provider => "policy_provider",
             Denied::Model => "policy_model",
-            Denied::Orchestrator => "policy_orchestrator",
+            Denied::Node => "policy_node",
             Denied::Expired => "policy_expired",
             Denied::Rate => "policy_rate",
             Denied::Budget => "policy_budget",
@@ -224,8 +224,8 @@ impl Denied {
     }
 }
 
-/// Live counters the Executor threads into each check (rate/budget are stateful,
-/// tracked by the Executor — not by the Orchestrator, and not trusted from the wire).
+/// Live counters the Client threads into each check (rate/budget are stateful,
+/// tracked by the Client — not by the Node, and not trusted from the wire).
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Live<'a> {
     /// Requests already made in the current minute (for `rate.rpm`).
@@ -238,9 +238,9 @@ pub struct Live<'a> {
 
 impl Policy {
     /// Enforce the policy in the §6 order:
-    /// provider → model → orchestrator → expiry → rate → budget.
+    /// provider → model → node → expiry → rate → budget.
     /// Returns the first failing dimension, or `Ok(())`.
-    pub fn check(&self, provider: &str, model: &str, orchestrator: &str, live: Live) -> Result<(), Denied> {
+    pub fn check(&self, provider: &str, model: &str, node: &str, live: Live) -> Result<(), Denied> {
         if let Some(ps) = &self.providers
             && !ps.iter().any(|p| p == provider)
         {
@@ -251,10 +251,10 @@ impl Policy {
         {
             return Err(Denied::Model);
         }
-        if let Some(os) = &self.orchestrators
-            && !os.iter().any(|o| o == orchestrator)
+        if let Some(os) = &self.nodes
+            && !os.iter().any(|o| o == node)
         {
-            return Err(Denied::Orchestrator);
+            return Err(Denied::Node);
         }
         if let Some(exp) = &self.expires_at
             && !live.now_rfc3339.is_empty()
@@ -269,7 +269,7 @@ impl Policy {
             return Err(Denied::Rate);
         }
         if let Some(b) = &self.budget {
-            // Spend is tracked live by the Executor; the policy only carries the cap.
+            // Spend is tracked live by the Client; the policy only carries the cap.
             if live.spent_usd >= b.limit_usd {
                 return Err(Denied::Budget);
             }
@@ -356,10 +356,10 @@ mod tests {
             Some("kw_sess_1".into()),
             "01J",
             Body::Paired {
-                orchestrator: Peer {
+                node: Peer {
                     name: "acme".into(),
                     version: None,
-                    id: Some("orch_1".into()),
+                    id: Some("node_1".into()),
                 },
                 root_pubkey: "9d8f".into(),
                 op: OpCert {

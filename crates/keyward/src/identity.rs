@@ -1,9 +1,9 @@
-//! Orchestrator identity: the root → operational-key chain (§3/§9).
+//! Node identity: the root → operational-key chain (§3/§9).
 //!
-//! The Executor pins a long-term **root** key on first contact. Each connection
+//! The Client pins a long-term **root** key on first contact. Each connection
 //! presents a short-lived **operational** key carrying a root-signed delegation
-//! (`OpCert`) and signs the assigned `sid` with it. The Executor accepts any
-//! operational key whose cert chains to the pinned root — so the Orchestrator can
+//! (`OpCert`) and signs the assigned `sid` with it. The Client accepts any
+//! operational key whose cert chains to the pinned root — so the Node can
 //! rotate keys / autoscale across reconnects without the Owner re-pairing, while a
 //! stolen pairing token alone still can't bind (it can't forge a root signature).
 
@@ -30,7 +30,7 @@ fn cert_msg(op_pubkey: &[u8; 32], not_after: i64) -> Vec<u8> {
     m
 }
 
-/// Orchestrator side: have the root delegate a fresh operational key until `not_after`.
+/// Node side: have the root delegate a fresh operational key until `not_after`.
 pub fn issue_op_cert(root: &SigningKey, op_pub: &VerifyingKey, not_after: i64) -> OpCert {
     let sig = root.sign(&cert_msg(&op_pub.to_bytes(), not_after));
     OpCert {
@@ -40,7 +40,7 @@ pub fn issue_op_cert(root: &SigningKey, op_pub: &VerifyingKey, not_after: i64) -
     }
 }
 
-/// Executor side: verify the cert chains to `root` and isn't expired; return the op key.
+/// Client side: verify the cert chains to `root` and isn't expired; return the op key.
 pub fn verify_op_cert(root: &VerifyingKey, cert: &OpCert, now: i64) -> Result<VerifyingKey> {
     let op = parse_pubkey(&cert.pubkey)?;
     if cert.not_after < now {
@@ -78,8 +78,8 @@ pub fn parse_pubkey(hex_str: &str) -> Result<VerifyingKey> {
     VerifyingKey::from_bytes(&b).map_err(|e| anyhow!("bad pubkey: {e}"))
 }
 
-/// Load the Executor's persistent identity (keychain / env), or generate one and
-/// persist it. The public half is what an Orchestrator allow-lists.
+/// Load the Client's persistent identity (keychain / env), or generate one and
+/// persist it. The public half is what an Node allow-lists.
 pub fn load_or_create_identity() -> SigningKey {
     if let Some(seed) = crate::secret::load_identity_seed()
         && let Some(bytes) = unhex(&seed)

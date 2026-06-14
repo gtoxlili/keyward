@@ -3,12 +3,12 @@
 //! The protocol is transport-agnostic (spec §1): it needs exactly one reliable,
 //! ordered, bidirectional, message-oriented channel. This crate provides that over a
 //! gRPC bidirectional stream and exposes the **same `Frame` channels** the WebSocket
-//! adapter does — so the Executor and the Orchestrator SDK run identical logic on top,
+//! adapter does — so the Client and the Node SDK run identical logic on top,
 //! whichever transport carries it.
 //!
-//! The Executor dials OUT (it is the gRPC **client**); the Orchestrator listens (gRPC
+//! The Client dials OUT (it is the gRPC **client**); the Node listens (gRPC
 //! **server**). That keeps the no-inbound-ports invariant: a single bidirectional
-//! stream, opened by the Executor, carries the whole session in both directions.
+//! stream, opened by the Client, carries the whole session in both directions.
 //!
 //! Each gRPC message wraps one canonical Keyward JSON frame (`Frame { json }`) — gRPC
 //! is the pipe, the JSON envelope from spec.md is unchanged.
@@ -65,7 +65,7 @@ async fn pump_in(mut stream: tonic::Streaming<PbFrame>, in_tx: mpsc::Sender<Fram
     }
 }
 
-/// **Executor side.** Dial the Orchestrator's gRPC endpoint (an `http://…` or
+/// **Client side.** Dial the Node's gRPC endpoint (an `http://…` or
 /// `https://…` URL) and open the session stream. Returns `(out, inbound)`: send frames
 /// on `out`, receive them from `inbound` — the same shape the WebSocket adapter yields,
 /// so the caller's logic is transport-agnostic.
@@ -87,9 +87,9 @@ pub async fn dial(url: &str) -> Result<(mpsc::Sender<Frame>, mpsc::Receiver<Fram
     Ok((out, in_rx))
 }
 
-/// **Orchestrator side.** Serve gRPC at `addr` and accept ONE Executor's session
+/// **Node side.** Serve gRPC at `addr` and accept ONE Client's session
 /// stream, returning the same `(out, inbound)` frame channels as [`dial`]. (v0: one
-/// Executor per call, matching the SDK's `serve_one`.)
+/// Client per call, matching the SDK's `serve_one`.)
 pub async fn accept_one(addr: SocketAddr) -> Result<(mpsc::Sender<Frame>, mpsc::Receiver<Frame>)> {
     let (handoff_tx, handoff_rx) = oneshot::channel();
     let svc = Svc {
@@ -103,7 +103,7 @@ pub async fn accept_one(addr: SocketAddr) -> Result<(mpsc::Sender<Frame>, mpsc::
     });
     handoff_rx
         .await
-        .map_err(|_| anyhow!("gRPC server stopped before an executor connected"))
+        .map_err(|_| anyhow!("gRPC server stopped before an client connected"))
 }
 
 type Handoff = oneshot::Sender<(mpsc::Sender<Frame>, mpsc::Receiver<Frame>)>;
@@ -120,11 +120,11 @@ impl Keyward for Svc {
         &self,
         req: Request<tonic::Streaming<PbFrame>>,
     ) -> Result<Response<Self::OpenStream>, Status> {
-        // Inbound: executor → us, demoted to a plain Frame channel.
+        // Inbound: client → us, demoted to a plain Frame channel.
         let (in_tx, in_rx) = mpsc::channel::<Frame>(CHAN);
         tokio::spawn(pump_in(req.into_inner(), in_tx));
 
-        // Outbound: us → executor. The caller sends on `out`; we re-wrap as PbFrame
+        // Outbound: us → client. The caller sends on `out`; we re-wrap as PbFrame
         // and feed the response stream.
         let (out, mut out_rx) = mpsc::channel::<Frame>(CHAN);
         let (pb_tx, pb_rx) = mpsc::channel::<Result<PbFrame, Status>>(CHAN);
