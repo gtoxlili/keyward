@@ -40,6 +40,7 @@ verification** and the **Orchestrator SDK / proxy**.
 - [~] **Secret hardening** — `set-key` now reads from a hidden-TTY prompt (no echo) when interactive; `mlock`/`setrlimit` to keep the key out of swap/core dumps still TODO
 
 ### Make it usable (productization)
+- [x] **Desktop app** — a bilingual (EN/中文) Tauri app for the Executor: pairing, OS-keychain credentials, policy, and a live dashboard with a "Orchestrator → Executor" routing line. Drives the real executor core (the `keyward` crate as a lib). ([apps/executor-desktop](../apps/executor-desktop))
 - [x] **Local OpenAI-compatible proxy** — `keyward proxy` (feature `proxy`): an app points `OPENAI_BASE_URL` at it and the proxy relays each request to the paired Executor; streaming SSE is native passthrough, non-streaming is assembled. Verified live against a real backend.
 - [x] **Orchestrator SDK** — Rust (`keyward-sdk`) and Go (`sdk/go`) clients, both cross-verified against the real executor (the Go orchestrator's Ed25519 chain verifies on the Rust executor — proof the protocol is language-agnostic). The Rust SDK serves either transport (`serve_one` over WebSocket, `serve_one_grpc` over gRPC). (The proxy covers zero-code-change integration; these are for embedding in-process.)
 - [ ] **Serverless Executor templates** — Cloudflare Worker / AWS Lambda / Deno Deploy, key as a secret in the user's own account

@@ -130,7 +130,9 @@ The only real requirement is that the Executor is reachable while there's work t
 
 For interactive use — you're sitting there watching the agent — a local process or even something
 running in the browser tab is fine. When you close the tab, the work stops, and that's usually what
-you want anyway.
+you want anyway. There's also a **[desktop app](apps/executor-desktop)** (Tauri, bilingual EN/中文):
+pair with an orchestrator, keep provider keys in your OS keychain, set policy, and watch a live
+dashboard — driving the same executor core.
 
 For autonomous use — the agent grinds away while you're asleep — it needs to be always-on. The part
 people miss is that **"always-on" doesn't have to mean "on the app's servers."** Deploy the Executor
