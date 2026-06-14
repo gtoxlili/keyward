@@ -1,0 +1,75 @@
+name: Tag Rust SDK
+
+# Auto-tag the Rust SDK on every push to main that touches `crates/keyward-sdk/**`.
+# Cargo has no submodule-versioning rule like Go's — a git dependency's `tag = "…"`
+# resolves to whatever ref exists by that name, no naming constraint — so we mirror
+# the Go SDK's style with `keyward-sdk/v<major>.<minor>.<patch>` (sorts together with
+# `git tag --list '*sdk*'`, clean to grep). Patch is the commit count touching the
+# crate. Idempotent on re-runs.
+#
+# `Cargo.toml`'s version field is NOT synced from the tag — for git-dep consumption
+# Cargo ignores it, and writing it back would force a bot commit per merge and risk a
+# tag→commit→tag loop. The git tag is the source of truth.
+#
+# Consume the tagged SDK from another Rust project:
+#   keyward-sdk = { git = "https://github.com/gtoxlili/keyward.git", tag = "keyward-sdk/v0.1.7" }
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/keyward-sdk/**"
+      - ".github/workflows/tag-sdk-rust.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: tag-sdk-rust
+  cancel-in-progress: false
+
+env:
+  INITIAL_MAJOR_MINOR: "0.1"
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          LATEST=$(git tag --list 'keyward-sdk/v*' --sort=-v:refname | head -n1 || true)
+          if [ -n "$LATEST" ] && MM=$(echo "$LATEST" | sed -nE 's|^keyward-sdk/v([0-9]+\.[0-9]+)(\..*)?$|\1|p') && [ -n "$MM" ]; then
+            MAJOR_MINOR="$MM"
+            echo "MAJOR_MINOR=$MAJOR_MINOR (from $LATEST)"
+          else
+            MAJOR_MINOR='${{ env.INITIAL_MAJOR_MINOR }}'
+            echo "MAJOR_MINOR=$MAJOR_MINOR (bootstrap)"
+          fi
+          COUNT=$(git rev-list --count HEAD -- crates/keyward-sdk/)
+          TAG="keyward-sdk/v${MAJOR_MINOR}.${COUNT}"
+          echo "Resolved: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Push tag if new
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.version.outputs.tag }}'
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
+            echo "::notice::tag ${TAG} already on origin; CI re-run on same commit, skipping"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git tag -a "${TAG}" -m "Auto-tag Rust SDK at ${GITHUB_SHA}"
+          git push origin "${TAG}"
+          echo "::notice::pushed ${TAG}"

@@ -1,0 +1,78 @@
+name: Tag Go SDK
+
+# Auto-tag the Go SDK on every push to main that touches `sdk/go/**`.
+# Tags are `sdk/go/v<major>.<minor>.<patch>` — the `sdk/go/` prefix is what lets
+# Go's module system version a sub-tree of a monorepo (go.dev/ref/mod, "Multiple
+# major versions and submodules"). Patch is `git rev-list --count HEAD -- sdk/go/`,
+# so each merge gets a fresh, monotonically-increasing version. Idempotent: a re-run
+# on the same commit noops instead of re-tagging.
+#
+# Consume the tagged module from another Go project:
+#   go get github.com/gtoxlili/keyward/sdk/go@sdk/go/v0.1.7
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "sdk/go/**"
+      - ".github/workflows/tag-sdk-go.yml"
+
+# Push tags back with the default token (needs contents:write).
+permissions:
+  contents: write
+
+# Serialize tag pushes so two runs can't race the same `git push`.
+concurrency:
+  group: tag-sdk-go
+  cancel-in-progress: false
+
+env:
+  # Bootstrap MAJOR.MINOR, used only until the first `sdk/go/v*` tag exists. After
+  # that the workflow reads MAJOR.MINOR from the latest tag; bump the line with a
+  # one-time `git tag sdk/go/v0.2.0 && git push --tags`.
+  INITIAL_MAJOR_MINOR: "0.1"
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          # Full history for `git rev-list --count`; tags to detect existing ones.
+          fetch-depth: 0
+          fetch-tags: true
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve tag
+        id: version
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Version-aware sort so v0.1.10 sorts after v0.1.9.
+          LATEST=$(git tag --list 'sdk/go/v*' --sort=-v:refname | head -n1 || true)
+          if [ -n "$LATEST" ] && MM=$(echo "$LATEST" | sed -nE 's|^sdk/go/v([0-9]+\.[0-9]+)(\..*)?$|\1|p') && [ -n "$MM" ]; then
+            MAJOR_MINOR="$MM"
+            echo "MAJOR_MINOR=$MAJOR_MINOR (from $LATEST)"
+          else
+            MAJOR_MINOR='${{ env.INITIAL_MAJOR_MINOR }}'
+            echo "MAJOR_MINOR=$MAJOR_MINOR (bootstrap)"
+          fi
+          COUNT=$(git rev-list --count HEAD -- sdk/go/)
+          TAG="sdk/go/v${MAJOR_MINOR}.${COUNT}"
+          echo "Resolved: $TAG"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Push tag if new
+        shell: bash
+        run: |
+          set -euo pipefail
+          TAG='${{ steps.version.outputs.tag }}'
+          if git ls-remote --tags origin "refs/tags/${TAG}" | grep -q .; then
+            echo "::notice::tag ${TAG} already on origin; CI re-run on same commit, skipping"
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git tag -a "${TAG}" -m "Auto-tag Go SDK at ${GITHUB_SHA}"
+          git push origin "${TAG}"
+          echo "::notice::pushed ${TAG}"
