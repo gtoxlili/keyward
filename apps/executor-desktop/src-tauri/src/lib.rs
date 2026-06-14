@@ -1,8 +1,8 @@
-//! Tauri backend for the Keyward Executor desktop app.
+//! Tauri backend for the Keyward Client desktop app.
 //!
-//! Every command drives the *real* executor core from the `keyward` crate — there is no
-//! reimplementation here. The UI starts the executor with a config, and structured
-//! [`ExecutorEvent`]s are streamed back over an IPC [`Channel`]. Provider credentials
+//! Every command drives the *real* client core from the `keyward` crate — there is no
+//! reimplementation here. The UI starts the client with a config, and structured
+//! [`ClientEvent`]s are streamed back over an IPC [`Channel`]. Provider credentials
 //! live in the OS keychain and never cross to the frontend.
 
 use std::path::PathBuf;
@@ -13,19 +13,19 @@ use tauri::async_runtime::{JoinHandle, Mutex};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, State};
 
-use keyward::executor::{self, ExecutorConfig, ExecutorEvent};
+use keyward::client::{self, ClientConfig, ClientEvent};
 use keyward::keyward_proto::{Budget, Policy, Rate};
 use keyward::{identity, secret, wire};
 
-/// The currently running executor task, so a new start (or stop) can cancel it.
+/// The currently running client task, so a new start (or stop) can cancel it.
 #[derive(Default)]
 struct Runner(Mutex<Option<JoinHandle<()>>>);
 
-/// Config the UI submits to start the executor.
+/// Config the UI submits to start the client.
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct StartConfig {
-    orch_url: String,
+    node_url: String,
     pairing_token: String,
     providers: Vec<String>,
     budget_usd: Option<f64>,
@@ -48,8 +48,8 @@ struct KeyStatus {
     present: bool,
 }
 
-/// This Executor's long-term identity (created + persisted on first call). The
-/// pubkey is what an Orchestrator allow-lists.
+/// This Client's long-term identity (created + persisted on first call). The
+/// pubkey is what a Node allow-lists.
 #[tauri::command]
 async fn get_identity() -> Result<IdentityInfo, String> {
     tauri::async_runtime::spawn_blocking(|| {
@@ -97,23 +97,23 @@ async fn key_status(providers: Vec<String>) -> Result<Vec<KeyStatus>, String> {
     .map_err(|e| e.to_string())
 }
 
-/// Start the executor: build a policy + identity, dial the Orchestrator, and stream
-/// status events back over `on_event`. Cancels any previously running executor.
+/// Start the client: build a policy + identity, dial the Node, and stream
+/// status events back over `on_event`. Cancels any previously running client.
 #[tauri::command]
-async fn start_executor(
+async fn start_client(
     runner: State<'_, Runner>,
     config: StartConfig,
-    on_event: Channel<ExecutorEvent>,
+    on_event: Channel<ClientEvent>,
 ) -> Result<(), String> {
-    // Cancel any in-flight executor first.
+    // Cancel any in-flight client first.
     if let Some(handle) = runner.0.lock().await.take() {
         handle.abort();
     }
 
-    // Out-of-band pin: the executor reads this when verifying the orchestrator root.
+    // Out-of-band pin: the client reads this when verifying the node root.
     match &config.expected_root_fp {
         Some(fp) if !fp.trim().is_empty() => {
-            // SAFETY: set once at startup before the executor task spins up.
+            // SAFETY: set once at startup before the client task spins up.
             unsafe { std::env::set_var("KEYWARD_EXPECT_ROOT_FP", fp.trim()) };
         }
         _ => unsafe { std::env::remove_var("KEYWARD_EXPECT_ROOT_FP") },
@@ -133,8 +133,8 @@ async fn start_executor(
         ..Default::default()
     };
 
-    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<ExecutorEvent>();
-    // Forward executor events to the frontend channel until the executor task ends
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<ClientEvent>();
+    // Forward client events to the frontend channel until the client task ends
     // (which drops `tx` and closes this loop).
     tauri::async_runtime::spawn(async move {
         while let Some(ev) = rx.recv().await {
@@ -142,7 +142,7 @@ async fn start_executor(
         }
     });
 
-    let exec_cfg = ExecutorConfig {
+    let client_cfg = ClientConfig {
         name: "keyward-desktop".into(),
         providers: config.providers,
         policy,
@@ -151,19 +151,19 @@ async fn start_executor(
         pinned: Arc::new(Mutex::new(None)),
         events: Some(tx),
     };
-    let url = config.orch_url;
+    let url = config.node_url;
     let token = config.pairing_token;
 
     let handle = tauri::async_runtime::spawn(async move {
-        let _ = executor::run(&url, &token, exec_cfg).await;
+        let _ = client::run(&url, &token, client_cfg).await;
     });
     *runner.0.lock().await = Some(handle);
     Ok(())
 }
 
-/// Stop the running executor (if any).
+/// Stop the running client (if any).
 #[tauri::command]
-async fn stop_executor(runner: State<'_, Runner>) -> Result<(), String> {
+async fn stop_client(runner: State<'_, Runner>) -> Result<(), String> {
     if let Some(handle) = runner.0.lock().await.take() {
         handle.abort();
     }
@@ -175,7 +175,7 @@ fn settings_file(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir.join("settings.json"))
 }
 
-/// Load the UI's persisted settings blob (language, theme, last orchestrator, policy
+/// Load the UI's persisted settings blob (language, theme, last node, policy
 /// defaults…). The frontend owns the shape. Returns `null` if none saved yet.
 #[tauri::command]
 fn load_settings(app: AppHandle) -> serde_json::Value {
@@ -206,11 +206,11 @@ pub fn run() {
             set_key,
             delete_key,
             key_status,
-            start_executor,
-            stop_executor,
+            start_client,
+            stop_client,
             load_settings,
             save_settings,
         ])
         .run(tauri::generate_context!())
-        .expect("error while running Keyward Executor");
+        .expect("error while running Keyward Client");
 }

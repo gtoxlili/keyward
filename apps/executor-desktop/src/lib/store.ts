@@ -1,8 +1,8 @@
 import { createContext, useContext } from "react";
-import type { ExecutorEvent, Identity, Settings } from "./api";
+import type { ClientEvent, Identity, Settings } from "./api";
 
 export type Status = "idle" | "connecting" | "connected" | "error";
-export type LogEntry = ExecutorEvent & { id: number; at: number };
+export type LogEntry = ClientEvent & { id: number; at: number };
 
 export type AppState = {
   settings: Settings;
@@ -10,7 +10,7 @@ export type AppState = {
   identity: Identity | null;
   status: Status;
   events: LogEntry[];
-  /** Start the executor with a one-time pairing token (kept out of persisted state). */
+  /** Start the client with a one-time pairing token (kept out of persisted state). */
   start: (pairingToken: string) => Promise<void>;
   stop: () => Promise<void>;
   toast: (msg: string, tone?: "ok" | "bad") => void;
@@ -28,7 +28,7 @@ export const useApp = (): AppState => {
 export function deriveStats(events: LogEntry[]) {
   const now = Date.now();
   let spentUsd = 0;
-  let orchestrator: string | null = null;
+  let node: string | null = null;
   let rootFp: string | null = null;
   const accepted = new Set<string>();
   const terminal = new Set<string>();
@@ -37,8 +37,8 @@ export function deriveStats(events: LogEntry[]) {
 
   // events are newest-first
   for (const e of events) {
-    if (e.kind === "paired" && !orchestrator) {
-      orchestrator = e.orchestrator;
+    if (e.kind === "paired" && !node) {
+      node = e.node;
       rootFp = e.rootFingerprint;
     }
     if (e.kind === "done") {
@@ -54,5 +54,5 @@ export function deriveStats(events: LogEntry[]) {
   }
   let inFlight = 0;
   for (const mid of accepted) if (!terminal.has(mid)) inFlight++;
-  return { spentUsd, orchestrator, rootFp, served, inFlight, rpmUsed: recentAccepts };
+  return { spentUsd, node, rootFp, served, inFlight, rpmUsed: recentAccepts };
 }

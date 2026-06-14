@@ -1,7 +1,7 @@
 {
-  "name": "keyward-executor-desktop",
+  "name": "keyward-client-desktop",
   "version": "0.0.0",
-  "description": "Keyward Executor — a desktop app for the non-custodial BYOK executor.",
+  "description": "Keyward Client — a desktop app for the non-custodial BYOK client.",
   "type": "module",
   "private": true,
   "scripts": {

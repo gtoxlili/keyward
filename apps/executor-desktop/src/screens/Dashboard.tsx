@@ -9,7 +9,7 @@ function eventText(e: LogEntry, d: Dict): { msg: string; meta: string } {
     case "connecting":
       return { msg: e.url, meta: "" };
     case "paired":
-      return { msg: e.orchestrator, meta: e.rootFingerprint };
+      return { msg: e.node, meta: e.rootFingerprint };
     case "accepted":
       return { msg: `${e.provider} · ${e.model}`, meta: "" };
     case "done":
@@ -50,11 +50,11 @@ export function Dashboard() {
 
       <div className={s.routing} data-live={live} style={{ marginBottom: 16 }}>
         <div className={s.routingNode({})}>
-          <b>{d.dashboard.orchestrator}</b>
-          <small>{stats.orchestrator ?? d.dashboard.orchestratorSub}</small>
+          <b>{d.dashboard.node}</b>
+          <small>{stats.node ?? d.dashboard.nodeSub}</small>
           <span className={s.nodeBadge({})}>
             <i className={s.nodeBadgeDot} />
-            {stats.orchestrator ? d.status.connected : d.dashboard.notPaired}
+            {stats.node ? d.status.connected : d.dashboard.notPaired}
           </span>
         </div>
         <div className={s.routingWire}>

@@ -1,10 +1,10 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
 import type { Lang } from "../i18n";
 
-/** Mirrors `keyward::executor::ExecutorEvent` (internally tagged on `kind`). */
-export type ExecutorEvent =
+/** Mirrors `keyward::client::ClientEvent` (internally tagged on `kind`). */
+export type ClientEvent =
   | { kind: "connecting"; url: string }
-  | { kind: "paired"; orchestrator: string; rootFingerprint: string; sid: string }
+  | { kind: "paired"; node: string; rootFingerprint: string; sid: string }
   | { kind: "accepted"; mid: string; provider: string; model: string }
   | {
       kind: "done";
@@ -22,10 +22,10 @@ export type ExecutorEvent =
   | { kind: "reconnecting"; attempt: number }
   | { kind: "stopped"; reason: string };
 
-export type ExecutorEventKind = ExecutorEvent["kind"];
+export type ClientEventKind = ClientEvent["kind"];
 
 export type StartConfig = {
-  orchUrl: string;
+  nodeUrl: string;
   pairingToken: string;
   providers: string[];
   budgetUsd?: number | null;
@@ -40,7 +40,7 @@ export type KeyStatus = { provider: string; present: boolean };
 export type Settings = {
   lang: Lang;
   theme: "dark" | "light";
-  orchUrl: string;
+  nodeUrl: string;
   providers: string[];
   budgetUsd: number | null;
   rpm: number | null;
@@ -52,12 +52,12 @@ export const api = {
   setKey: (provider: string, key: string) => invoke<void>("set_key", { provider, key }),
   deleteKey: (provider: string) => invoke<void>("delete_key", { provider }),
   keyStatus: (providers: string[]) => invoke<KeyStatus[]>("key_status", { providers }),
-  startExecutor(config: StartConfig, onEvent: (e: ExecutorEvent) => void) {
-    const channel = new Channel<ExecutorEvent>();
+  startClient(config: StartConfig, onEvent: (e: ClientEvent) => void) {
+    const channel = new Channel<ClientEvent>();
     channel.onmessage = onEvent;
-    return invoke<void>("start_executor", { config, onEvent: channel });
+    return invoke<void>("start_client", { config, onEvent: channel });
   },
-  stopExecutor: () => invoke<void>("stop_executor"),
+  stopClient: () => invoke<void>("stop_client"),
   loadSettings: () => invoke<Partial<Settings> | null>("load_settings"),
   saveSettings: (settings: Settings) => invoke<void>("save_settings", { settings }),
 };

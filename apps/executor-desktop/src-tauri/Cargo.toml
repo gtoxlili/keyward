@@ -1,7 +1,7 @@
 [package]
-name = "keyward-executor-desktop"
+name = "keyward-client-desktop"
 version = "0.0.0"
-description = "Keyward Executor — desktop app for the non-custodial BYOK executor"
+description = "Keyward Client — desktop app for the non-custodial BYOK client"
 authors = ["gtoxlili"]
 edition = "2024"
 rust-version = "1.85"
@@ -12,7 +12,7 @@ repository = "https://github.com/gtoxlili/keyward"
 [workspace]
 
 [lib]
-name = "keyward_executor_lib"
+name = "keyward_client_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
@@ -24,7 +24,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
-# The real executor core — the desktop app drives it directly (no reimplementation).
+# The real client core — the desktop app drives it directly (no reimplementation).
 keyward = { path = "../../../crates/keyward", default-features = false, features = ["openai", "anthropic"] }
 
 [profile.release]

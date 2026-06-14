@@ -15,8 +15,8 @@ export const en = {
   },
   common: {
     save: "Save",
-    start: "Start executor",
-    stop: "Stop executor",
+    start: "Start client",
+    stop: "Stop client",
     copy: "Copy",
     copied: "Copied",
     remove: "Remove",
@@ -27,14 +27,14 @@ export const en = {
     disabled: "off",
   },
   brand: {
-    tag: "Executor",
+    tag: "Client",
   },
   dashboard: {
     title: "Dashboard",
-    subtitle: "Live status of your executor — the key never leaves this machine.",
-    orchestrator: "Orchestrator",
-    orchestratorSub: "the app — holds no key",
-    you: "Executor",
+    subtitle: "Live status of your client — the key never leaves this machine.",
+    node: "Node",
+    nodeSub: "the rendezvous — holds no key",
+    you: "Client",
     youSub: "this machine — holds your key",
     routes: "routes work to your key",
     notPaired: "not paired",
@@ -47,7 +47,7 @@ export const en = {
     rpmCap: "of {rpm} rpm",
     noRate: "no rate cap set",
     activity: "Activity",
-    noActivity: "No activity yet. Start the executor and pair with an orchestrator.",
+    noActivity: "No activity yet. Start the client and pair with a node.",
     waiting: "Paired — waiting for work.",
   },
   events: {
@@ -64,20 +64,20 @@ export const en = {
   pairing: {
     title: "Pairing",
     subtitle:
-      "Dial out to an orchestrator. The executor opens the connection — no inbound ports.",
-    orchUrl: "Orchestrator URL",
-    orchUrlHint: "ws:// or wss:// (grpc:// needs a build with the gRPC feature).",
+      "Dial out to a node. The client opens the connection — no inbound ports.",
+    nodeUrl: "Node URL",
+    nodeUrlHint: "ws:// or wss:// (grpc:// needs a build with the gRPC feature).",
     token: "Pairing token",
-    tokenHint: "A one-time code the app showed you. Pasted, never stored in the clear.",
+    tokenHint: "A one-time code the node showed you. Pasted, never stored in the clear.",
     expectedFp: "Expected root fingerprint",
     expectedFpHint:
-      "Optional out-of-band check: paste the app's root fingerprint to refuse anything else.",
+      "Optional out-of-band check: paste the node's root fingerprint to refuse anything else.",
     offer: "Providers to offer",
-    offerHint: "The executor advertises these; policy still gates each call.",
-    running: "Executor is running.",
+    offerHint: "The client advertises these; policy still gates each call.",
+    running: "Client is running.",
     identity: "Your identity",
     identityHint:
-      "Give this pubkey to an orchestrator that allow-lists executors. Generated and kept in your OS keychain.",
+      "Give this pubkey to a node that allow-lists clients. Generated and kept in your OS keychain.",
     fingerprint: "Fingerprint",
     pubkey: "Public key",
   },
@@ -116,7 +116,7 @@ export const en = {
     light: "Light",
     about: "About",
     aboutBody:
-      "Keyward routes the work to the key, never the key to the work. This executor runs on your infrastructure, holds your API credentials, enforces your policy, and makes the provider call — so a SaaS can use your key without ever holding it.",
+      "Keyward routes the work to the key, never the key to the work. This client runs on your infrastructure, holds your API credentials, enforces your policy, and makes the provider call — so a SaaS can use your key without ever holding it.",
     version: "Version",
   },
 };

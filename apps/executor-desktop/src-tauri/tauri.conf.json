@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Keyward Executor",
+  "productName": "Keyward Client",
   "version": "0.0.0",
-  "identifier": "work.gtio.keyward.executor",
+  "identifier": "work.gtio.keyward.client",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Keyward Executor",
+        "title": "Keyward Client",
         "width": 1100,
         "height": 740,
         "minWidth": 900,
@@ -34,8 +34,8 @@
     "active": true,
     "targets": "all",
     "category": "DeveloperTool",
-    "shortDescription": "Non-custodial BYOK executor",
-    "longDescription": "Keyward Executor runs on your machine, holds your API keys, enforces your policy, and routes work from an Orchestrator to your keys — the key never leaves.",
+    "shortDescription": "Non-custodial BYOK client",
+    "longDescription": "Keyward Client runs on your machine, holds your API keys, enforces your policy, and routes work from a Node to your keys — the key never leaves.",
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

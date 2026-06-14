@@ -30,15 +30,15 @@ export function Pairing() {
       <div className={s.grid({ cols: 2 })}>
         <div className={s.card({ pad: "lg" })}>
           <div className={s.field}>
-            <label className={s.fieldLabel}>{d.pairing.orchUrl}</label>
+            <label className={s.fieldLabel}>{d.pairing.nodeUrl}</label>
             <input
               className={clsx(s.input, s.mono)}
               placeholder="ws://127.0.0.1:8787"
-              value={settings.orchUrl}
+              value={settings.nodeUrl}
               spellCheck={false}
-              onChange={(e) => update({ orchUrl: e.target.value })}
+              onChange={(e) => update({ nodeUrl: e.target.value })}
             />
-            <span className={s.hint}>{d.pairing.orchUrlHint}</span>
+            <span className={s.hint}>{d.pairing.nodeUrlHint}</span>
           </div>
 
           <div className={s.field}>
@@ -95,7 +95,7 @@ export function Pairing() {
             ) : (
               <button
                 className={s.btn({ tone: "primary" })}
-                disabled={!settings.orchUrl || !token || settings.providers.length === 0}
+                disabled={!settings.nodeUrl || !token || settings.providers.length === 0}
                 onClick={() => start(token)}
               >
                 {d.common.start}

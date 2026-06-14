@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { clsx } from "clsx";
-import { api, type ExecutorEvent, type Identity, type Settings } from "./lib/api";
+import { api, type ClientEvent, type Identity, type Settings } from "./lib/api";
 import { AppContext, type AppState, type LogEntry, type Status } from "./lib/store";
 import { I18nContext, dicts, type Lang } from "./i18n";
 import {
@@ -25,7 +25,7 @@ type ScreenKey = "dashboard" | "pairing" | "keys" | "policy" | "settings";
 const DEFAULTS: Settings = {
   lang: "en",
   theme: "dark",
-  orchUrl: "ws://127.0.0.1:8787",
+  nodeUrl: "ws://127.0.0.1:8787",
   providers: ["mock"],
   budgetUsd: 5,
   rpm: 60,
@@ -65,7 +65,7 @@ export default function App() {
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 2600);
   };
 
-  const onEvent = (e: ExecutorEvent) => {
+  const onEvent = (e: ClientEvent) => {
     setEvents((prev) => [{ ...e, id: ++counter.current, at: Date.now() }, ...prev].slice(0, 250));
     switch (e.kind) {
       case "connecting":
@@ -91,9 +91,9 @@ export default function App() {
     setEvents([]);
     setStatus("connecting");
     try {
-      await api.startExecutor(
+      await api.startClient(
         {
-          orchUrl: settings.orchUrl.trim(),
+          nodeUrl: settings.nodeUrl.trim(),
           pairingToken: token.trim(),
           providers: settings.providers,
           budgetUsd: settings.budgetUsd,
@@ -110,7 +110,7 @@ export default function App() {
 
   const stop = async () => {
     try {
-      await api.stopExecutor();
+      await api.stopClient();
     } catch {
       /* ignore */
     }

@@ -2,5 +2,5 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 fn main() {
-    keyward_executor_lib::run()
+    keyward_client_lib::run()
 }

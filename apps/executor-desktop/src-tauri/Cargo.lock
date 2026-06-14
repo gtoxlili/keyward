@@ -1824,7 +1824,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "keyward-executor-desktop"
+name = "keyward-client-desktop"
 version = "0.0.0"
 dependencies = [
  "anyhow",
