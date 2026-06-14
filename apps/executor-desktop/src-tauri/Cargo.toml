@@ -3,7 +3,8 @@ name = "keyward-executor-desktop"
 version = "0.0.0"
 description = "Keyward Executor — desktop app for the non-custodial BYOK executor"
 authors = ["gtoxlili"]
-edition = "2021"
+edition = "2024"
+rust-version = "1.85"
 license = "Apache-2.0"
 repository = "https://github.com/gtoxlili/keyward"
 
