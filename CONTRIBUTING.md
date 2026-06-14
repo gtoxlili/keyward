@@ -10,7 +10,7 @@ actually useful to contribute.
 Argue with the spec. The **Open questions** section of the spec is where I'm least sure of myself,
 and the threat model in the README is the thing I most want stress-tested. Open an issue if:
 
-- You can break the core promise — any path by which the Orchestrator (or its operator, its logs,
+- You can break the core promise — any path by which the Node (or its operator, its logs,
   or a breach of it) could still end up with the key. That's not a typo, it's a flaw in the *idea*,
   and I want to know. (If it's that, please read [SECURITY.md](./SECURITY.md) first and report it
   privately.)

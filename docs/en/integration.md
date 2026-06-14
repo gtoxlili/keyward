@@ -99,12 +99,14 @@ docker run -p 8088:8088 -p 8787:8787 keyward   # multi-tenant by default
 #   (or add -e KEYWARD_SINGLE_TENANT=1 for a personal one-Client node, where any key works)
 ```
 
-Override the command for the Client role — an
-always-on Client on the Owner's box with the key as an env secret:
+Override the command for the Client role — an always-on Client on the Owner's box with the key
+as an env secret. `KEYWARD_ROUTE_TOKEN` is the routing token apps use to address this Client on
+a multi-tenant node (otherwise it's derived from the Client's pubkey):
 
 ```sh
 docker run -e KEYWARD_NODE_URL=grpc://node.example.com:443 \
-           -e KEYWARD_PAIRING_TOKEN=pt_... -e OPENAI_API_KEY=sk-... keyward client
+           -e KEYWARD_PAIRING_TOKEN=pt_... -e KEYWARD_ROUTE_TOKEN=rt_... \
+           -e OPENAI_API_KEY=sk-... keyward client
 ```
 
 It runs as a non-root user and needs no build-time secrets. Tune the listen addresses

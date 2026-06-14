@@ -13,7 +13,7 @@
 //! let cfg = Config::new("my-app", "node_myapp", "pt_one_time_token");
 //! println!("root fingerprint: {}", cfg.root_fingerprint());
 //! let listener = TcpListener::bind("127.0.0.1:8787").await?;
-//! let session = serve_one(&listener, &cfg).await?; // waits for an client to pair
+//! let session = serve_one(&listener, &cfg).await?; // waits for a client to pair
 //!
 //! let mut rx = session
 //!     .submit("openai", serde_json::json!({

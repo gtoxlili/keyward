@@ -65,10 +65,13 @@ keyward client
 
 ## 5. 自己验证
 
-别光听我们说——拿一个抓包代理挂在 Client 前面，亲眼确认你的 key**只**出现在发往 Provider 的请求里，
-从不出现在通往应用的那条通道上。
+别光听我们说——把 Client 发往 Provider 的调用穿过一个抓包代理，亲眼确认你的 key**只**出现在发往
+Provider 的请求里，从不出现在通往节点的那条通道上。
 
 ```sh
+# 1. 在 :8080 起一个抓包代理（mitmproxy，或任意会记录请求的代理）
+mitmproxy -p 8080 &
+# 2. 让 Client 的 Provider 调用经过这个代理
 OPENAI_BASE_URL="http://127.0.0.1:8080/v1" \
 KEYWARD_NODE_URL="wss://…" KEYWARD_PAIRING_TOKEN="pt_…" \
 keyward client

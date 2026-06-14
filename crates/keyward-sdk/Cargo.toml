@@ -5,7 +5,7 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
-description = "Keyward Orchestrator SDK — integrate an app as the brain that never holds the key."
+description = "Keyward Node SDK — embed a Node in-process (the app stays unaware; the key stays on the Client)."
 
 [dependencies]
 keyward-proto.workspace = true
@@ -20,7 +20,7 @@ uuid.workspace = true
 keyward-grpc = { path = "../keyward-grpc", optional = true }
 
 [features]
-# gRPC transport for the Orchestrator side (`serve_one_grpc`). Pulls in keyward-grpc
+# gRPC transport for the Node side (`serve_one_grpc`). Pulls in keyward-grpc
 # (tonic/prost) and needs `protoc` at build time.
 grpc = ["dep:keyward-grpc"]
 

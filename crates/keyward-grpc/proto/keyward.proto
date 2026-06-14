@@ -12,9 +12,9 @@ message Frame {
 }
 
 service Keyward {
-  // The Executor (the gRPC client) dials this and opens ONE bidirectional stream
+  // The Client (the gRPC client) dials this and opens ONE bidirectional stream
   // that carries the whole session: hello/paired, work, work_chunk/done/error,
-  // resume/cancel, close. The Orchestrator is the gRPC server — so the Executor
+  // resume/cancel, close. The Node is the gRPC server — so the Client
   // still dials OUT and needs no inbound ports. (Named `Open`, not `Connect`, to
   // avoid colliding with tonic's generated client constructor.)
   rpc Open(stream Frame) returns (stream Frame);

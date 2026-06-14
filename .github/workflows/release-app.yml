@@ -113,8 +113,8 @@ jobs:
         with:
           projectPath: apps/executor-desktop
           tagName: ${{ needs.version.outputs.tag }}
-          releaseName: "Keyward Executor ${{ needs.version.outputs.tag }}"
-          releaseBody: "Automated build of the Keyward Executor desktop app. Unsigned — on first launch macOS/Windows may warn; open it from the context menu / Defender 'Run anyway'."
+          releaseName: "Keyward Client ${{ needs.version.outputs.tag }}"
+          releaseBody: "Automated build of the Keyward Client desktop app. Unsigned — on first launch macOS/Windows may warn; open it from the context menu / Defender 'Run anyway'."
           releaseDraft: false
           prerelease: false
           args: ${{ matrix.args }}

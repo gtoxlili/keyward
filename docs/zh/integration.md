@@ -87,11 +87,13 @@ docker run -p 8088:8088 -p 8787:8787 keyward   # 默认多租户
 #   （或加 -e KEYWARD_SINGLE_TENANT=1 跑个人单 Client 节点，那样随便什么 key 都行）
 ```
 
-换个命令就能切到 Client 角色——在 Owner 的机器上跑一个常驻 Client，把 key 以环境变量机密的形式传进去：
+换个命令就能切到 Client 角色——在 Owner 的机器上跑一个常驻 Client，把 key 以环境变量机密的形式传进去。
+`KEYWARD_ROUTE_TOKEN` 就是多租户节点上应用用来寻址这个 Client 的路由 token（不设则由 Client 的 pubkey 派生）：
 
 ```sh
 docker run -e KEYWARD_NODE_URL=grpc://node.example.com:443 \
-           -e KEYWARD_PAIRING_TOKEN=pt_... -e OPENAI_API_KEY=sk-... keyward client
+           -e KEYWARD_PAIRING_TOKEN=pt_... -e KEYWARD_ROUTE_TOKEN=rt_... \
+           -e OPENAI_API_KEY=sk-... keyward client
 ```
 
 镜像以非 root 用户运行，也不需要任何构建期的机密。监听地址可以用 `KEYWARD_HTTP_LISTEN` / `KEYWARD_LISTEN`

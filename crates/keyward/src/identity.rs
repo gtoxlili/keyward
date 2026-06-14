@@ -79,7 +79,7 @@ pub fn parse_pubkey(hex_str: &str) -> Result<VerifyingKey> {
 }
 
 /// Load the Client's persistent identity (keychain / env), or generate one and
-/// persist it. The public half is what an Node allow-lists.
+/// persist it. The public half is what a Node allow-lists.
 pub fn load_or_create_identity() -> SigningKey {
     if let Some(seed) = crate::secret::load_identity_seed()
         && let Some(bytes) = unhex(&seed)

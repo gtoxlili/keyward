@@ -214,7 +214,7 @@ Custody stops the key from leaking; **policy stops it from being abused.** Both 
 - A session lives as long as the channel. On channel loss the session is **suspended**, not failed:
   the Node MAY re-establish through the transport and resume an in-flight intent.
 - **Resumption.** Each intent's `work_chunk`s carry a monotonic `seq` from 0 (§5). The transport
-  gives ordering; the `seq` is the resumable cursor — do not reuse a transport stream id for it. An
+  gives ordering; the `seq` is the resumable cursor — do not reuse a transport stream id for it. A
   Client SHOULD retain recently-sent chunks for an in-flight `mid` in a bounded per-intent buffer.
   On reconnect the Node MAY send
 

@@ -1,6 +1,6 @@
 name: Publish server image
 
-# Build the keyward server image (the proxy / orchestrator / executor binary) and
+# Build the keyward server image (the keyward node / client binary) and
 # push a multi-arch (amd64 + arm64) manifest to GHCR on every push to main that
 # touches the binary's sources or the Dockerfile.
 #

@@ -5,7 +5,7 @@ The **gRPC transport adapter** for Keyward.
 The protocol is transport-agnostic (spec [§1](../../docs/spec.md)): it needs exactly one
 reliable, ordered, bidirectional, message-oriented channel. This crate provides that
 over a gRPC bidirectional stream and exposes the **same `Frame` channels** the
-WebSocket adapter does — so the Executor and the Orchestrator SDK run identical logic
+WebSocket adapter does — so the Client and the Node SDK run identical logic
 on top, whichever transport carries it.
 
 ```protobuf
@@ -15,9 +15,9 @@ service Keyward {
 }
 ```
 
-- The **Executor** dials OUT — it is the gRPC **client** ([`dial`]) — so the
+- The **Client** dials OUT — it is the gRPC **client** ([`dial`]) — so the
   no-inbound-ports invariant still holds.
-- The **Orchestrator** listens — gRPC **server** ([`accept_one`]).
+- The **Node** listens — gRPC **server** ([`accept_one`]).
 - gRPC is the pipe; the JSON envelope from the spec is unchanged (`Frame { json }`
   wraps it). A fully-typed protobuf profile may come later.
 
@@ -32,8 +32,8 @@ only crate in the workspace with that requirement, so it is kept out of the defa
 build set — a plain `cargo build` stays pure-Rust; gRPC builds when you opt in:
 
 ```sh
-cargo build -p keyward --features grpc        # executor (gRPC client)
-cargo build -p keyward-sdk --features grpc     # orchestrator SDK (gRPC server)
+cargo build -p keyward --features grpc        # client (gRPC client)
+cargo build -p keyward-sdk --features grpc     # node SDK (gRPC server)
 # macOS:  brew install protobuf      Debian/Ubuntu:  apt-get install protobuf-compiler
 ```
 

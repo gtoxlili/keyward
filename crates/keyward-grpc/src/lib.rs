@@ -103,7 +103,7 @@ pub async fn accept_one(addr: SocketAddr) -> Result<(mpsc::Sender<Frame>, mpsc::
     });
     handoff_rx
         .await
-        .map_err(|_| anyhow!("gRPC server stopped before an client connected"))
+        .map_err(|_| anyhow!("gRPC server stopped before a client connected"))
 }
 
 type Handoff = oneshot::Sender<(mpsc::Sender<Frame>, mpsc::Receiver<Frame>)>;

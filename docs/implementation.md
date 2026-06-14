@@ -24,10 +24,11 @@ crates/
                               (feature = "anthropic")
     src/pricing.rs         budget cost from usage × vendored LiteLLM prices (data/)
     src/secret.rs          per-provider key resolution: OS keychain (keyring) -> env
-    src/client.rs        dial out, verify node key chain, enforce policy, relay;
+    src/client.rs          dial out, verify node key chain, enforce policy, relay;
                            per-intent ring buffer + reconnect/resume/cancel (§7)
     src/identity.rs        root -> operational-key chain: issue/verify op certs (§3/§9)
-    src/node.rs    mock app: issues pairing token, signs sid, drives intents
+    src/session.rs         node-side session: pairing + auth, and the demo's serve loop
+                           (signs sid, drives intents); the deployable Node is src/node.rs
     src/demo.rs            wires both ends over a localhost WS; `demo` runs three intents,
                            `resume-demo` drops the channel mid-stream and resumes
     src/e2e_tests.rs       integration tests: drive the real client, assert on its frames
@@ -66,13 +67,17 @@ an explicit `cancel` aborts.
 ## Run the two ends separately
 
 ```sh
-# terminal 1 — the app (holds no key)
-cargo run -- node                      # prints a pairing token + the exact client command
+# terminal 1 — the node / rendezvous (holds no key). SINGLE_TENANT=1 → one client, no token needed.
+KEYWARD_SINGLE_TENANT=1 cargo run --features node -- node   # ws://…:8787 (clients) + http://…:8088 (apps)
 
-# terminal 2 — the client (holds the key), using the token printed above
-KEYWARD_NODE_URL=ws://127.0.0.1:8787 \
-KEYWARD_PAIRING_TOKEN=pt_dev_token \
+# terminal 2 — the client (holds the key), using the pairing token printed above
+# (add --features openai + a provider key for a real call)
+KEYWARD_NODE_URL=ws://127.0.0.1:8787 KEYWARD_PAIRING_TOKEN=pt_dev_token \
 cargo run -- client
+
+# terminal 3 — an unaware OpenAI app: just point it at the node and call
+curl http://127.0.0.1:8088/v1/chat/completions -H 'content-type: application/json' \
+  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"hi"}]}'
 ```
 
 ## Verify the core promise yourself (the proxy recipe)

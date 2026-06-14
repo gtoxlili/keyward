@@ -1,5 +1,5 @@
 //! `keyward demo` — a self-contained end-to-end run, no key and no network.
-//! It stands up a mock Node and an Client over a real localhost
+//! It stands up a mock Node and a Client over a real localhost
 //! WebSocket and shows: dial-out pairing with a signed `sid`, TOFU key pinning,
 //! a policy-allowed intent that streams + meters usage, and a policy-blocked
 //! intent that the Client refuses before the provider is ever contacted.

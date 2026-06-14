@@ -72,10 +72,14 @@ the provider is contacted:
 
 ## 5. Verify it yourself
 
-Don't take our word for it — point a proxy at the Client and confirm your key
-appears **only** on the call to the provider, never on the channel to the app.
+Don't take our word for it — route the Client's provider calls through an intercepting
+proxy and confirm your key appears **only** on the call to the provider, never on the
+channel to the node.
 
 ```sh
+# 1. start an intercepting proxy on :8080 (mitmproxy, or any logging proxy)
+mitmproxy -p 8080 &
+# 2. run the Client with its provider calls pointed through that proxy
 OPENAI_BASE_URL="http://127.0.0.1:8080/v1" \
 KEYWARD_NODE_URL="wss://…" KEYWARD_PAIRING_TOKEN="pt_…" \
 keyward client
