@@ -3,7 +3,7 @@
 🌐 **English** · [中文](../zh/users.md)
 
 > You hold an API key and want an app to use it **without ever seeing it.** You run a
-> small **Executor**; the app sends work to it; the key stays on your side. New to the
+> small **Client**; the app sends work to it; the key stays on your side. New to the
 > model? Read the [docs index](./README.md) first.
 
 ## 1. Get Keyward
@@ -37,26 +37,26 @@ echo "sk-ant-..." | keyward set-key anthropic
 ## 3. Pair with an app
 
 A Keyward-enabled app gives you a **pairing token** (today a code; a scannable QR is
-on the roadmap) and a connection URL. Point your Executor at them — it **dials out**,
+on the roadmap) and a connection URL. Point your Client at them — it **dials out**,
 so you never open an inbound port.
 
 ```sh
-KEYWARD_ORCH_URL="wss://the-app.example.com/keyward" \
+KEYWARD_NODE_URL="wss://the-app.example.com/keyward" \
 KEYWARD_PAIRING_TOKEN="pt_xxx_from_the_app" \
-keyward executor
+keyward client
 ```
 
-On pairing the Executor pins the app's **root identity key** (trust-on-first-use) and
+On pairing the Client pins the app's **root identity key** (trust-on-first-use) and
 prints its fingerprint. Compare it against the one the app shows — that's what stops
 an impostor from binding even if your pairing token leaks.
 
 Some apps only admit registered users. If so, run `keyward identity` to print your
-Executor's pubkey and give it to the app at sign-up — your Executor proves it holds
+Client's pubkey and give it to the app at sign-up — your Client proves it holds
 that key when it connects.
 
-## 4. What the Executor enforces for you
+## 4. What the Client enforces for you
 
-The app can't *steal* your key, but it could still *spend* it. So the Executor
+The app can't *steal* your key, but it could still *spend* it. So the Client
 enforces an **Owner policy** before every call, rejecting anything outside it *before*
 the provider is contacted:
 
@@ -72,19 +72,19 @@ the provider is contacted:
 
 ## 5. Verify it yourself
 
-Don't take our word for it — point a proxy at the Executor and confirm your key
+Don't take our word for it — point a proxy at the Client and confirm your key
 appears **only** on the call to the provider, never on the channel to the app.
 
 ```sh
 OPENAI_BASE_URL="http://127.0.0.1:8080/v1" \
-KEYWARD_ORCH_URL="wss://…" KEYWARD_PAIRING_TOKEN="pt_…" \
-keyward executor
+KEYWARD_NODE_URL="wss://…" KEYWARD_PAIRING_TOKEN="pt_…" \
+keyward client
 # in the proxy you'll see `Authorization: Bearer sk-…` ONLY on the provider request.
 ```
 
 ## 6. Stop or revoke
 
-The Executor only works while it's running. Close it (`Ctrl-C`) and all work stops
+The Client only works while it's running. Close it (`Ctrl-C`) and all work stops
 immediately — for interactive use, usually what you want. For autonomous / always-on
 use, run it as a long-lived process on a box you own (your-own serverless templates
 are on the roadmap).

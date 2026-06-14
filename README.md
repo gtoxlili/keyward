@@ -31,7 +31,7 @@ If you've used WalletConnect, this will feel familiar. The dApp asks, your walle
 never sees your private key. Keyward is that idea, for API keys.
 
 > **Status:** `v0`, unstable, and incubating — but real enough to run. The wire protocol is drafted
-> ([spec](./docs/spec.md)) and there's a working Rust reference Executor; see
+> ([spec](./docs/spec.md)) and there's a working Rust reference Client; see
 > [what's real and what's still stubbed](./docs/implementation.md). Treat every detail as provisional
 > until `v1`. Issues and pushback welcome.
 
@@ -58,25 +58,32 @@ something, and can you check it yourself.**
 
 Custodial BYOK answers "it's our server, trust us." Every variation — paste-the-key SaaS, a
 LiteLLM-style gateway you self-host, a TEE broker — is just a different answer to *who holds it*.
-Keyward's answer is: an executor on *your* side holds it, and you can watch it to be sure.
+Keyward's answer is: a Client on *your* side holds it, and you can watch it to be sure.
 
 ## The shape
 
-Split the system into a brain and a pair of hands.
+Keyward pulls the key-holding out of the app and splits it across two cooperating pieces — and
+the app doesn't even have to know it happened.
 
-- **Orchestrator** — the app. It decides *what* to do: drives the agent loop, builds prompts, keeps
-  state. It holds no key, ever. (The "brain", or the "dApp" if you like the wallet analogy.)
-- **Executor** — a small thing *you* run, inside your own trust boundary. It holds the key, enforces
+- **Client** — a small thing *you* run, inside your own trust boundary. It holds the key, enforces
   your limits, and makes the actual call to the provider. (The "hands", or the "wallet".)
+- **Node** — a rendezvous the Client dials into and the app reaches. It holds no key, ever; it
+  just routes each request to the right Client. (The WalletConnect *relay*, if you like the
+  analogy — neutral, and it can even be a shared/public station.)
+- **App** — whatever's driving: it decides *what* to do (the agent loop, the prompts) and holds no
+  key. It can stay **completely unaware** of Keyward — it just points its OpenAI base URL at a Node
+  and uses a routing token as its "API key". (Building the app yourself? Embed the Node in-process
+  with the SDK instead.)
 - **Provider** — OpenAI, Anthropic, whoever you're paying.
 
-The brain sends a *work intent* to the hands. The hands attach the key locally, call the provider,
-and stream the result back. That's the whole trick.
+The app makes an ordinary request; the Node relays it to your Client as a *work intent* (no key);
+the Client attaches the key locally, calls the provider, and streams the result back. That's the
+whole trick — and the app is none the wiser.
 
 ## One call, end to end
 
 ```
-Owner                Executor                 Orchestrator              Provider
+Owner                Client                 Node              Provider
  │  start, bind key      │                          │                       │
  │ ───────────────────▶  │                          │                       │
  │                       │  dial out + pair          │                       │
@@ -94,48 +101,48 @@ Owner                Executor                 Orchestrator              Provider
  │ ◀───────────────────▶ │                          │                       │
 ```
 
-1. You run an Executor and give it your key as a local secret. It **dials out** to the Orchestrator
+1. You run a Client and give it your key as a local secret. It **dials out** to the Node
    and pairs — think scanning a WalletConnect QR. Dialing out means no open ports and nothing
-   public on your side: it's an outbound connection the Orchestrator pushes work down (a WebSocket
+   public on your side: it's an outbound connection the Node pushes work down (a WebSocket
    or a gRPC stream), not a published port. The protocol is transport-agnostic, but it's a
    *dial-out app connection*, not a tunnel appliance — `frp`/ngrok/Cloudflare Tunnel are built to
    expose an inbound listener, which is the opposite shape (see [SPEC §1](./docs/spec.md)).
-2. When the Orchestrator wants an LLM call, it sends a work intent over that session: model,
-   messages, tools, params. No key — it doesn't have one to send.
-3. The Executor checks the intent against the limits *you* set (allowed models, budget, rate, which
+2. The (unaware) app makes an ordinary request to the Node; the Node relays it down that session
+   as a work intent: model, messages, tools, params. No key — the Node doesn't have one to send.
+3. The Client checks the intent against the limits *you* set (allowed models, budget, rate, which
    app), injects the key, and calls the provider directly.
 4. It streams the response back over the session.
-5. You can inspect, throttle, or kill the connection at the Executor whenever you want. The key's
-   bytes never pass through the Orchestrator.
+5. You can inspect, throttle, or kill the connection at the Client whenever you want. The key's
+   bytes never pass through the Node.
 
 ## What you can actually verify
 
-The claim is deliberately narrow: **the Orchestrator never has your key.** Not in memory, not in a
+The claim is deliberately narrow: **the Node never has your key.** Not in memory, not in a
 log, not in transit, and not sitting in a database waiting to leak.
 
 The reason I care about the word *verify* is that you don't have to take my word for any of it:
 
-- The key shows up in exactly one place — the Executor's outbound call to the provider. Point a
-  proxy at the Executor and confirm the key never appears in anything going to the Orchestrator.
-- The Executor is meant to be open source and reproducibly built, so "this binary is that source"
+- The key shows up in exactly one place — the Client's outbound call to the provider. Point a
+  proxy at the Client and confirm the key never appears in anything going to the Node.
+- The Client is meant to be open source and reproducibly built, so "this binary is that source"
   is something you check, not assume.
 - It runs on a box you own, so nobody else can read its memory or its secret store.
 
 A custodial proxy can only ever promise "we don't log it." A TEE broker can offer "trust the silicon
 and the attestation paperwork." Keyward's pitch is just: look — it never left your side.
 
-## Running the Executor
+## Running the Client
 
-The only real requirement is that the Executor is reachable while there's work to do.
+The only real requirement is that the Client is reachable while there's work to do.
 
 For interactive use — you're sitting there watching the agent — a local process or even something
 running in the browser tab is fine. When you close the tab, the work stops, and that's usually what
 you want anyway. There's also a **[desktop app](apps/executor-desktop)** (Tauri, bilingual EN/中文):
-pair with an orchestrator, keep provider keys in your OS keychain, set policy, and watch a live
-dashboard — driving the same executor core.
+pair with a node, keep provider keys in your OS keychain, set policy, and watch a live
+dashboard — driving the same client core.
 
 For autonomous use — the agent grinds away while you're asleep — it needs to be always-on. The part
-people miss is that **"always-on" doesn't have to mean "on the app's servers."** Deploy the Executor
+people miss is that **"always-on" doesn't have to mean "on the app's servers."** Deploy the Client
 to your *own* serverless (a Cloudflare Worker, a Lambda, Deno Deploy) with the key as a secret in
 *your* account, or to a cheap VPS you own. Always available, but the key sits in infrastructure the
 app provably can't read.
@@ -144,8 +151,8 @@ app provably can't read.
 
 **Isn't this just LiteLLM / a proxy with extra steps?**
 No, and this is the one distinction worth being pedantic about. A gateway *holds* your key and
-forwards calls for you — it's custodial, you're back to trusting a server. Keyward's Orchestrator
-holds nothing and literally cannot make a call without a live Executor on your side. Different
+forwards calls for you — it's custodial, you're back to trusting a server. Keyward's Node
+holds nothing and literally cannot make a call without a live Client on your side. Different
 category, not a nicer proxy.
 
 **Why not just use a TEE / enclave?**
@@ -154,13 +161,14 @@ of side-channels. That's strong, but it's not something a normal user can check,
 broken more than once. Keyward keeps the key on *your* hardware so there's nothing to attest.
 
 **Does the app still see my prompts?**
-Yes. Keyward protects the *credential*, not the *payload* — the Orchestrator is the thing building
-and reading the prompts, so of course it sees them. Hiding content from the app too is a different,
+Yes. Keyward protects the *credential*, not the *payload* — the app is the thing building and
+reading the prompts, so of course it sees them. (A *blind* Node that relays only ciphertext is a
+separate mode, [SPEC §10](./docs/spec.md).) Hiding content from the app itself is a different,
 harder problem and explicitly out of scope here. I'd rather do one thing honestly.
 
 **A malicious app can still burn my budget within the limits, right?**
 Right. Custody isn't the same as control. That's exactly why limits — model allowlists, budget
-caps, rate limits, per-app scoping, an audit log — live in the Executor and are part of the
+caps, rate limits, per-app scoping, an audit log — live in the Client and are part of the
 protocol, not an afterthought. Custody stops the key from leaking; policy stops it from being
 abused.
 
@@ -172,7 +180,7 @@ abused.
 | What you're trusting              | a privacy policy   | yourself            | CPU vendor + attestation | **code you can read** |
 | You can verify it yourself        | no                 | —                   | hard              | **yes**         |
 | Works for offline/autonomous runs | yes                | yes                 | yes               | yes, on your own always-on box |
-| Infra you have to run             | none               | the whole gateway   | none              | a small Executor |
+| Infra you have to run             | none               | the whole gateway   | none              | a small Client |
 
 ## Roadmap
 
@@ -181,13 +189,13 @@ The high-level shape:
 
 - [x] `v0` spec — wire format for pairing, the work intent, streaming frames, and the policy object.
       Drafted in [SPEC.md](./docs/spec.md); pairing auth, resumption, and budget pricing are now resolved.
-- [~] Reference Executor — open source, reproducible; a local binary plus one-click serverless
+- [~] Reference Client — open source, reproducible; a local binary plus one-click serverless
       templates. A Rust **walking skeleton** runs end to end today — see
       [IMPLEMENTATION.md](./docs/implementation.md). Serverless templates and reproducible-build pipeline next.
-- [x] Orchestrator SDK — Rust (`keyward-sdk`) and Go (`sdk/go`) clients, plus a zero-code-change
-      OpenAI-compatible proxy (`keyward proxy`) so an app integrates by pointing `OPENAI_BASE_URL` at it.
+- [x] Node SDK — Rust (`keyward-sdk`) and Go (`sdk/go`) clients, plus a zero-code-change
+      OpenAI-compatible node (`keyward node`) so an app integrates by pointing `OPENAI_BASE_URL` at it.
 - [x] Transport adapters — outbound **WebSocket** and a **gRPC** bidi stream (scheme-selected, same
-      envelope, the Executor stays the dialing client); the protocol is transport-agnostic. (Tunnel
+      envelope, the Client stays the dialing client); the protocol is transport-agnostic. (Tunnel
       appliances are the wrong shape — see SPEC §1.)
 - [~] Provider adapters — OpenAI Chat-Completions, the OpenAI Responses API, and Anthropic Messages
       all land in the skeleton (Chat-Completions covers OpenAI-compatible providers for free);

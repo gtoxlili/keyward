@@ -1,13 +1,13 @@
 # syntax=docker/dockerfile:1
 #
-# Keyward server image — one Rust binary, several server roles. Built with the proxy,
+# Keyward server image — one Rust binary, several server roles. Built with the node role,
 # both provider dialects, and the gRPC transport.
 #
 #   docker build -t keyward .
 #   docker run -p 8088:8088 -p 8787:8787 keyward            # OpenAI-compatible gateway (default)
-#   docker run keyward orchestrator                          # reference orchestrator
-#   docker run -e KEYWARD_ORCH_URL=grpc://orch.example.com:443 \
-#              -e KEYWARD_PAIRING_TOKEN=pt_... -e OPENAI_API_KEY=sk-... keyward executor
+#   docker run keyward demo                                  # self-contained end-to-end demo
+#   docker run -e KEYWARD_NODE_URL=grpc://node.example.com:443 \
+#              -e KEYWARD_PAIRING_TOKEN=pt_... -e OPENAI_API_KEY=sk-... keyward client
 #
 # cargo-chef caches the dependency build in its own layer — deps recompile only when
 # Cargo.{toml,lock} change, not on every source edit. Base images use floating tags so
@@ -38,11 +38,11 @@ COPY --from=planner /src/recipe.json recipe.json
 # Per-arch cache scopes so parallel multi-arch builds don't race in the registry.
 RUN --mount=type=cache,id=cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry \
     --mount=type=cache,id=cargo-git-${TARGETARCH},target=/usr/local/cargo/git \
-    cargo chef cook --release -p keyward --features proxy,openai,anthropic,grpc --recipe-path recipe.json
+    cargo chef cook --release -p keyward --features node,openai,anthropic,grpc --recipe-path recipe.json
 COPY . .
 RUN --mount=type=cache,id=cargo-registry-${TARGETARCH},target=/usr/local/cargo/registry \
     --mount=type=cache,id=cargo-git-${TARGETARCH},target=/usr/local/cargo/git \
-    cargo build --release -p keyward --features proxy,openai,anthropic,grpc \
+    cargo build --release -p keyward --features node,openai,anthropic,grpc \
     && cp target/release/keyward /tmp/keyward
 
 # --- runner: distroless cc (glibc + ca-certs, no shell), non-root ------------------
@@ -50,9 +50,9 @@ FROM ${RUNTIME_IMAGE} AS runner
 COPY --from=builder --chown=nonroot:nonroot /tmp/keyward /usr/local/bin/keyward
 # The CLI defaults to 127.0.0.1; bind reachable interfaces inside the container.
 ENV KEYWARD_LISTEN=0.0.0.0:8787 \
-    KEYWARD_PROXY_LISTEN=0.0.0.0:8088
-# 8088 = OpenAI-compatible HTTP front (your app); 8787 = WebSocket the executor dials in.
+    KEYWARD_HTTP_LISTEN=0.0.0.0:8088
+# 8088 = OpenAI-compatible HTTP front (your app); 8787 = WebSocket the client dials in.
 EXPOSE 8088 8787
 USER nonroot
 ENTRYPOINT ["/usr/local/bin/keyward"]
-CMD ["proxy"]
+CMD ["node"]

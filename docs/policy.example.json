@@ -1,7 +1,7 @@
 {
   "providers": ["openai", "openai-responses", "anthropic"],
   "models": ["gpt-4o*", "gpt-4o-mini*", "claude-sonnet-*"],
-  "orchestrators": ["orch_acme"],
+  "nodes": ["node_acme"],
   "budget": { "limit_usd": 20, "window": "month", "spent_usd": 0 },
   "rate": { "rpm": 60, "tpm": 200000 },
   "expires_at": "2026-12-31T00:00:00Z"

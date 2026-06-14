@@ -7,7 +7,7 @@
 **Can the app read my raw key?**
 
 No — never. It only ever sends a work intent; the key is attached inside your
-Executor. That's the one promise you can verify yourself (see
+Client. That's the one promise you can verify yourself (see
 [Verify it yourself](./users.md#5-verify-it-yourself)).
 
 **Can the app see my prompts?**
@@ -19,18 +19,18 @@ problem.
 **Can a malicious app burn my budget?**
 
 Only within your limits. Custody isn't control — that's exactly why model allow-lists,
-budget caps, rate limits and expiry live in the Executor and run before every call.
+budget caps, rate limits and expiry live in the Client and run before every call.
 
 **Isn't this just a proxy / LiteLLM?**
 
 No. A gateway *holds* your key and forwards calls — custodial, you're trusting a
-server. Keyward's Orchestrator holds nothing and literally cannot make a call without
-a live Executor on your side.
+server. Keyward's Node holds nothing and literally cannot make a call without
+a live Client on your side.
 
-**What if I close the tab / stop the Executor?**
+**What if I close the tab / stop the Client?**
 
-All work stops immediately — the Orchestrator can't call the provider without a live
-Executor. For autonomous runs, keep the Executor running on a box you own.
+All work stops immediately — the Node can't call the provider without a live
+Client. For autonomous runs, keep the Client running on a box you own.
 
 **Which providers work today?**
 

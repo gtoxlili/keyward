@@ -21,23 +21,34 @@ mid-stream**, then reconnects and resumes from exactly where it left off.
 
 ## A real provider call
 
-Open two terminals.
+The Node speaks OpenAI over HTTP, so any OpenAI client drives it. Open two terminals,
+then `curl` it like you would OpenAI.
 
 ```sh
-# Terminal 1 — the app (Orchestrator). Holds no key. Here we ask for a real OpenAI call.
-KEYWARD_PROVIDER=openai KEYWARD_MODEL=gpt-4o KEYWARD_PROMPT="Say hi in 5 words." \
-  cargo run -- orchestrator
-# It prints a ws:// address and a pairing token, then waits.
+# Terminal 1 — the Node (rendezvous). Holds no key. Listens for a Client on :8787 and
+# serves an OpenAI-compatible front on :8088.
+cargo run --features node -- node
+# prints: clients dial in on ws://127.0.0.1:8787  (pairing_token=pt_dev_token)
 
-# Terminal 2 — the Executor (you). Build with the openai adapter; key from keychain/env.
+# Terminal 2 — the Client (you). Build with the openai adapter; key from keychain/env.
 OPENAI_API_KEY=sk-... \
-KEYWARD_ORCH_URL=ws://127.0.0.1:8787 KEYWARD_PAIRING_TOKEN=pt_dev_token \
-  cargo run --features openai -- executor
+KEYWARD_NODE_URL=ws://127.0.0.1:8787 KEYWARD_PAIRING_TOKEN=pt_dev_token \
+  cargo run --features openai -- client
 ```
 
-Terminal 2 dials out, pairs, the Executor pins the root and verifies the op key,
-checks policy, makes the **real** OpenAI call with your key, and streams the answer
-back to Terminal 1. Want the Responses API instead? Set `KEYWARD_PROVIDER=openai-responses`.
+Now drive it through the Node exactly as an unaware OpenAI app would — its base URL is just
+the Node, and any bearer routes to your single paired Client:
+
+```sh
+# Terminal 3 — the unaware "app": an ordinary OpenAI call.
+curl http://127.0.0.1:8088/v1/chat/completions \
+  -H 'authorization: Bearer anything' \
+  -d '{"model":"gpt-4o","messages":[{"role":"user","content":"Say hi in 5 words."}]}'
+```
+
+The Client dials out, pairs, pins the root and verifies the op key, checks policy, makes the
+**real** OpenAI call with your key, and streams the answer back through the Node to your curl.
+Want the Responses API? Hit `/v1/responses`; for Anthropic, `/v1/messages`.
 
 ---
 

@@ -1,7 +1,7 @@
 # Reference implementation — `v0` skeleton
 
 > **Status: walking skeleton.** It runs end to end and exercises the load-bearing
-> ideas — dial-out pairing, a pinned/verified Orchestrator identity, policy
+> ideas — dial-out pairing, a pinned/verified Node identity, policy
 > enforcement before the provider is touched, native-body passthrough, streamed
 > relay with per-intent sequence numbers, usage metering, and survive-a-dropped-
 > channel resumption (plus explicit cancel). Several pieces are deliberately
@@ -14,7 +14,7 @@
 crates/
   keyward-proto/   wire types (envelope, messages) + the policy engine (§6). No async,
                    no HTTP, no crypto — compiles to every target unchanged.
-  keyward/         the reference Executor + a mock Orchestrator for the demo.
+  keyward/         the reference Client + a mock Node for the demo.
     src/wire.rs            Frame ↔ WebSocket, hex/fingerprint/digest helpers
     src/provider/mod.rs       provider adapters; the `mock` provider (no key, no net),
                               dialect chosen by model family
@@ -24,13 +24,13 @@ crates/
                               (feature = "anthropic")
     src/pricing.rs         budget cost from usage × vendored LiteLLM prices (data/)
     src/secret.rs          per-provider key resolution: OS keychain (keyring) -> env
-    src/executor.rs        dial out, verify orchestrator key chain, enforce policy, relay;
+    src/client.rs        dial out, verify node key chain, enforce policy, relay;
                            per-intent ring buffer + reconnect/resume/cancel (§7)
     src/identity.rs        root -> operational-key chain: issue/verify op certs (§3/§9)
-    src/orchestrator.rs    mock app: issues pairing token, signs sid, drives intents
+    src/node.rs    mock app: issues pairing token, signs sid, drives intents
     src/demo.rs            wires both ends over a localhost WS; `demo` runs three intents,
                            `resume-demo` drops the channel mid-stream and resumes
-    src/e2e_tests.rs       integration tests: drive the real executor, assert on its frames
+    src/e2e_tests.rs       integration tests: drive the real client, assert on its frames
 ```
 
 ## Run the demo (no key, no network)
@@ -39,8 +39,8 @@ crates/
 cargo run -- demo
 ```
 
-You'll see: the Executor dial out; the Orchestrator present a root-delegated
-operational key and sign the freshly-assigned `sid`; the Executor **TOFU-pin the
+You'll see: the Client dial out; the Node present a root-delegated
+operational key and sign the freshly-assigned `sid`; the Client **TOFU-pin the
 root** and verify the op key chains to it (fingerprints match); three intents in
 three native dialects — `gpt-4o` Chat Completions, `claude-sonnet-4-5` Anthropic
 Messages, and a `gpt-4o` Responses-API call (note `input` instead of `messages`) —
@@ -54,11 +54,11 @@ before the provider is contacted.
 cargo run -- resume-demo
 ```
 
-The Orchestrator streams an intent, reads a few chunks, then **drops the socket
-mid-stream**. The Executor's producer keeps pulling from the provider into a
-ring buffer while the channel is down; the Executor re-dials, re-pairs (the
+The Node streams an intent, reads a few chunks, then **drops the socket
+mid-stream**. The Client's producer keeps pulling from the provider into a
+ring buffer while the channel is down; the Client re-dials, re-pairs (the
 pinned **root** still matches; the operational key may rotate — no second TOFU),
-and on `resume` **replays exactly the chunks the Orchestrator missed**, then
+and on `resume` **replays exactly the chunks the Node missed**, then
 finishes. A second intent is then
 **cancelled** part-way, showing the other half of §7: a dropped channel suspends,
 an explicit `cancel` aborts.
@@ -67,35 +67,35 @@ an explicit `cancel` aborts.
 
 ```sh
 # terminal 1 — the app (holds no key)
-cargo run -- orchestrator                      # prints a pairing token + the exact executor command
+cargo run -- node                      # prints a pairing token + the exact client command
 
-# terminal 2 — the executor (holds the key), using the token printed above
-KEYWARD_ORCH_URL=ws://127.0.0.1:8787 \
+# terminal 2 — the client (holds the key), using the token printed above
+KEYWARD_NODE_URL=ws://127.0.0.1:8787 \
 KEYWARD_PAIRING_TOKEN=pt_dev_token \
-cargo run -- executor
+cargo run -- client
 ```
 
 ## Verify the core promise yourself (the proxy recipe)
 
-This is the check that actually substantiates "the Orchestrator never has your
-key": point the Executor's provider calls at a proxy and confirm the credential
+This is the check that actually substantiates "the Node never has your
+key": point the Client's provider calls at a proxy and confirm the credential
 appears **only** on the call to the provider, never on the channel to the
-Orchestrator.
+Node.
 
 ```sh
 # 1. start mitmproxy (or any logging proxy) on :8080
 mitmproxy -p 8080
 
 # 2. run the real adapter, sending provider traffic through the proxy
-cargo run --features openai -- executor   # with OPENAI_API_KEY set
+cargo run --features openai -- client   # with OPENAI_API_KEY set
 #   OPENAI_BASE_URL is honored, so:
 OPENAI_BASE_URL=http://127.0.0.1:8080/v1 OPENAI_API_KEY=sk-… \
-KEYWARD_ORCH_URL=ws://… KEYWARD_PAIRING_TOKEN=… \
-cargo run --features openai -- executor
+KEYWARD_NODE_URL=ws://… KEYWARD_PAIRING_TOKEN=… \
+cargo run --features openai -- client
 ```
 
 In the proxy you will see the `Authorization: Bearer sk-…` header **only** on the
-request to the provider. Capture the WebSocket to the Orchestrator in parallel and
+request to the provider. Capture the WebSocket to the Node in parallel and
 confirm the key is absent there. (Honest limit: a proxy shows *which endpoint* the
 key goes to, not that a compromised binary couldn't exfiltrate it some other way —
 that's what reproducible builds + signed provenance are for. See the README's
@@ -104,17 +104,17 @@ that's what reproducible builds + signed provenance are for. See the README's
 ## What's real vs. what I faked
 
 Enough is real to believe the shape: the dial-out WS transport, pairing with a
-one-time token, the Ed25519 orchestrator identity as a root→operational-key chain
-(the Executor pins the root TOFU, verifies each connection's root-signed op cert +
+one-time token, the Ed25519 node identity as a root→operational-key chain
+(the Client pins the root TOFU, verifies each connection's root-signed op cert +
 its `sid` signature, refuses a changed root or an op key the root didn't sign, and
-gates work/resume/cancel on a verified pairing — so the orchestrator can rotate op
+gates work/resume/cancel on a verified pairing — so the node can rotate op
 keys across reconnects without re-pairing), the policy engine with the §6 ordering
 and trailing-`*` globs, native-body passthrough in three dialects (OpenAI Chat
 Completions, the OpenAI Responses API, and Anthropic Messages), the streamed
 relay with a per-intent `seq`,
 and usage metered into budget spend the way each dialect reports it. Resumption is
 real too: each intent's producer is decoupled from the connection and buffers into
-a bounded ring, so a dropped channel suspends rather than fails — the Executor
+a bounded ring, so a dropped channel suspends rather than fails — the Client
 re-dials, re-pairs against the pinned key, and replays from `resume`'s `last_seq`;
 `cancel` aborts. The real adapters are there too (Chat Completions forces
 `stream_options.include_usage`; Responses reads usage off the terminal
@@ -123,19 +123,19 @@ double-counting cache tokens; each attaches the key at one call site and honours
 its `*_BASE_URL`) — the demo just uses mocks so it needs no key. The `openai` and
 `openai-responses` providers share one OpenAI credential. The real CLI resolves
 each provider's credential from the OS keychain (env fallback), per
-provider, so one Executor can front several accounts. Executor authentication is
-real too: the Executor has a persistent identity key (`keyward identity`), signs
-the pairing token in `hello`, and the Orchestrator verifies that possession and
-(optionally) checks it against an allow-list of authorized Executor pubkeys — so a
+provider, so one Client can front several accounts. Client authentication is
+real too: the Client has a persistent identity key (`keyward identity`), signs
+the pairing token in `hello`, and the Node verifies that possession and
+(optionally) checks it against an allow-list of authorized Client pubkeys — so a
 SaaS can admit only registered users without weakening the Owner's verifiability.
 
 The rest is stubbed, roughly in the order I'd reach for next:
 - **Channel E2E crypto (Noise).** The reference channel is plain WSS to the
-  Orchestrator; the Noise inner layer (for an untrusted relay) isn't wired yet.
+  Node; the Noise inner layer (for an untrusted relay) isn't wired yet.
 - **OOB fingerprint UX.** `KEYWARD_EXPECT_ROOT_FP` lets the Owner pre-state the
-  expected orchestrator root fingerprint (and the Executor refuses a mismatch), but
+  expected node root fingerprint (and the Client refuses a mismatch), but
   there's no interactive passkey / QR gesture yet. (Single-use pairing tokens —
-  bound to one Executor identity — are done.)
+  bound to one Client identity — are done.)
 - **Secret hardening beyond the keychain.** Keys resolve per provider from the OS
   keychain — native backends only (macOS Keychain, Windows Credential Manager,
   Linux kernel keyutils; no D-Bus / secret-service dependency) — with an env
