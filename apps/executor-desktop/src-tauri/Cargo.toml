@@ -1,0 +1,32 @@
+[package]
+name = "keyward-executor-desktop"
+version = "0.0.0"
+description = "Keyward Executor — desktop app for the non-custodial BYOK executor"
+authors = ["gtoxlili"]
+edition = "2021"
+license = "Apache-2.0"
+repository = "https://github.com/gtoxlili/keyward"
+
+# Not part of the Rust workspace (it has its own lockfile / Tauri toolchain).
+[workspace]
+
+[lib]
+name = "keyward_executor_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = [] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+anyhow = "1"
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+# The real executor core — the desktop app drives it directly (no reimplementation).
+keyward = { path = "../../../crates/keyward", default-features = false, features = ["openai", "anthropic"] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+strip = true

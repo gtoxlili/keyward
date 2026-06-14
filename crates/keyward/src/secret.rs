@@ -49,6 +49,14 @@ pub fn load_key(provider: &str) -> SecretString {
     SecretString::from(env)
 }
 
+/// Whether a credential is resolvable for `provider` (keychain or env fallback),
+/// without revealing it — lets a UI show "configured" without handling the secret.
+pub fn key_present(provider: &str) -> bool {
+    !load_key(credential_provider(provider))
+        .expose_secret()
+        .is_empty()
+}
+
 fn provider_env_var(provider: &str) -> &'static str {
     match provider {
         "anthropic" => "ANTHROPIC_API_KEY",

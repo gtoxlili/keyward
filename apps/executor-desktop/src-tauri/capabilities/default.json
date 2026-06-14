@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capabilities for the main window. Custom commands are streamed over IPC channels; only the core defaults are needed.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

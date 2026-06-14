@@ -5,6 +5,10 @@
 //! authenticates it, enforces policy, injects the credential locally, and relays the
 //! provider stream — emitting structured [`executor::ExecutorEvent`]s for any UI.
 
+/// Re-exported wire/policy types, so embedders (e.g. the desktop app) can build a
+/// [`keyward_proto::Policy`] without a separate dependency.
+pub use keyward_proto;
+
 pub mod demo;
 pub mod executor;
 pub mod identity;
