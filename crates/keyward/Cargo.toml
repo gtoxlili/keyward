@@ -60,8 +60,9 @@ default = []
 openai = ["dep:reqwest"]
 anthropic = ["dep:reqwest"]
 # The Node server (`keyward node`) — a rendezvous + OpenAI-compatible HTTP front that
-# routes each request to the Client matching its bearer routing token (§10); with one
-# Client connected, no token is needed (the simple personal-node case). Pulls in axum.
+# routes each request to the Client matching its bearer routing token (§10). Multi-tenant
+# by default; `KEYWARD_SINGLE_TENANT=1` runs a personal one-Client node where no token is
+# needed. Pulls in axum.
 node = ["dep:axum"]
 # End-to-end seal layer (§9): the Client decrypts sealed work + encrypts replies, so a
 # Node relays only ciphertext. Pulls crypto_box (X25519 + ChaCha20-Poly1305).

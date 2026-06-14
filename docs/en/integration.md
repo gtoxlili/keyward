@@ -14,8 +14,9 @@
 existing — and entirely unaware — app integrates by pointing its base URL at it:
 
 ```sh
-keyward node   # waits for a client to pair, then serves http://127.0.0.1:8088
+KEYWARD_SINGLE_TENANT=1 keyward node   # one Client, no token; waits for it to pair, serves :8088
 # in your app:  OPENAI_BASE_URL=http://127.0.0.1:8088/v1   OPENAI_API_KEY=anything
+# (multi-tenant — drop SINGLE_TENANT — and the app's "API key" becomes each user's routing token)
 ```
 
 `/v1/chat/completions`, `/v1/responses`, and `/v1/messages` are routed to the
@@ -93,8 +94,9 @@ The repo ships a [`Dockerfile`](../../Dockerfile) — one image, several server 
 docker build -t keyward .
 # OpenAI-compatible gateway: :8088 is the HTTP front for your app, :8787 is where the
 # Owner's client dials in. Both bind 0.0.0.0 inside the container.
-docker run -p 8088:8088 -p 8787:8787 keyward
-#   in your app:  OPENAI_BASE_URL=http://<host>:8088/v1  OPENAI_API_KEY=anything
+docker run -p 8088:8088 -p 8787:8787 keyward   # multi-tenant by default
+#   in your app:  OPENAI_BASE_URL=http://<host>:8088/v1  OPENAI_API_KEY=<the Client's routing token>
+#   (or add -e KEYWARD_SINGLE_TENANT=1 for a personal one-Client node, where any key works)
 ```
 
 Override the command for the Client role — an

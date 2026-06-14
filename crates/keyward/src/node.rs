@@ -11,8 +11,8 @@
 //! policy allows. The app is unaware: to it this is just an OpenAI endpoint + an API key.
 //!
 //! Routing token per Client = its advertised `route_token` (from `KEYWARD_ROUTE_TOKEN`),
-//! else derived from its identity pubkey. Response demux is by `mid`, exactly as the
-//! single-tenant proxy.
+//! else derived from its identity pubkey. Response demux is by `mid`, exactly as a
+//! single-tenant node.
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -87,6 +87,13 @@ impl ClientConn {
 /// Routing registry: token → the Client connection that holds it.
 struct Node {
     routes: Mutex<HashMap<String, Arc<ClientConn>>>,
+    /// Single-tenant mode: a request with no/unknown routing token is routed to the sole
+    /// connected Client. OFF by default — a multi-tenant (public-station) node MUST require
+    /// a valid token, because the set of connected Clients is transient: routing a tokenless
+    /// request to "the only one currently connected" would hand a requester's prompt to an
+    /// arbitrary Owner and spend *their* key. Only an operator running their own personal
+    /// node (one Client) opts in, via `KEYWARD_SINGLE_TENANT=1`.
+    single_tenant: bool,
 }
 
 pub async fn run_cli() -> Result<()> {
@@ -110,8 +117,12 @@ pub async fn run_cli() -> Result<()> {
         single_use_token: false, // multi-tenant: one join-token admits many clients
         intents: Vec::new(),
     });
+    // Multi-tenant by default; opt into the personal (single-Client, tokenless) shortcut.
+    let single_tenant =
+        std::env::var("KEYWARD_SINGLE_TENANT").is_ok_and(|v| v == "1" || v.eq_ignore_ascii_case("true"));
     let node = Arc::new(Node {
         routes: Mutex::new(HashMap::new()),
+        single_tenant,
     });
 
     // Accept many clients, each on its own task.
@@ -145,10 +156,18 @@ pub async fn run_cli() -> Result<()> {
         .with_state(node);
     let http = TcpListener::bind(&http_listen).await?;
     println!("[node] OpenAI-compatible endpoint on http://{http_listen}");
-    println!(
-        "[node] each user points their app at it with their routing token as the API key:\n         \
-         OPENAI_BASE_URL=http://{http_listen}/v1  OPENAI_API_KEY=<their route token>"
-    );
+    if single_tenant {
+        println!(
+            "[node] SINGLE-TENANT mode: one Client, no routing token needed (personal node).\n         \
+             OPENAI_BASE_URL=http://{http_listen}/v1  OPENAI_API_KEY=anything"
+        );
+    } else {
+        println!(
+            "[node] multi-tenant: every request needs a valid routing token (set KEYWARD_SINGLE_TENANT=1\n         \
+             for a personal one-Client node). Each user points their app at it with their token as the key:\n         \
+             OPENAI_BASE_URL=http://{http_listen}/v1  OPENAI_API_KEY=<their route token>"
+        );
+    }
     axum::serve(http, app).await?;
     Ok(())
 }
@@ -295,14 +314,17 @@ fn no_route() -> Response {
 
 async fn conn_for(b: &Node, headers: &HeaderMap) -> Option<Arc<ClientConn>> {
     let routes = b.routes.lock().await;
+    // Token routing — the only path on a multi-tenant node. A request must name a connected
+    // Client by its routing token; an unknown/absent token is rejected (returns None).
     if let Some(token) = route_token_of(headers).filter(|t| !t.is_empty())
         && let Some(c) = routes.get(&token)
     {
         return Some(c.clone());
     }
-    // Single-client fallback: with exactly one client connected, a request needs no
-    // routing token — this is the simple "personal node" case (subsumes the old proxy).
-    if routes.len() == 1 {
+    // Single-tenant convenience ONLY: with the operator's explicit opt-in AND exactly one
+    // Client connected, a tokenless request goes to it (the personal-node case, ≈ the old
+    // proxy). Never falls back on client count alone — see `Node::single_tenant`.
+    if b.single_tenant && routes.len() == 1 {
         return routes.values().next().cloned();
     }
     None

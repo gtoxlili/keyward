@@ -323,6 +323,12 @@ the single-use, one-identity-per-token binding a SaaS uses (§9); per-Owner isol
 the routing token plus each Client's own policy. It MAY still authenticate Client identities
 (§9) and allow-list them.
 
+**Addressing MUST be by token, never by count.** A multi-tenant node MUST refuse a request whose
+token names no connected Client; it MUST NOT fall back to "the only Client currently connected,"
+because the connected set is transient — doing so would hand one requester's prompt to an
+arbitrary Owner and spend *their* key. A node MAY offer a single-tenant convenience mode (one
+Client, token optional) as an explicit operator opt-in, distinct from the default.
+
 **Trust spectrum.** A fully-app-unaware node terminates TLS, so it sees prompts (never keys) —
 a "trust the operator" model, acceptable for many public stations and still fully non-custodial of
 the credential. To make the node *blind* to content, move the small amount of awareness off the

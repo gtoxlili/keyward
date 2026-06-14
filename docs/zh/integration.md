@@ -13,8 +13,9 @@
 base URL 指过来就能接入：
 
 ```sh
-keyward node   # 等一个 Client 配对完成，然后在 http://127.0.0.1:8088 提供服务
+KEYWARD_SINGLE_TENANT=1 keyward node   # 单租户：只一个 Client、不需要 token；等它配对后在 :8088 提供服务
 # 在你的应用里：  OPENAI_BASE_URL=http://127.0.0.1:8088/v1   OPENAI_API_KEY=anything
+# （多租户——去掉 SINGLE_TENANT——则应用的「API key」就是每个用户各自的路由 token）
 ```
 
 `/v1/chat/completions`、`/v1/responses`、`/v1/messages` 会按路径分发到对应的请求格式；流式响应原样转发，
@@ -81,8 +82,9 @@ Client（用户侧）                             Node（会合点）
 docker build -t keyward .
 # OpenAI 兼容网关：:8088 是给你应用用的 HTTP 前端，:8787 是 Owner 的 Client 拨入的端口。
 # 容器内这两个都绑在 0.0.0.0 上。
-docker run -p 8088:8088 -p 8787:8787 keyward
-#   在你的应用里：  OPENAI_BASE_URL=http://<host>:8088/v1   OPENAI_API_KEY=anything
+docker run -p 8088:8088 -p 8787:8787 keyward   # 默认多租户
+#   在你的应用里：  OPENAI_BASE_URL=http://<host>:8088/v1   OPENAI_API_KEY=<该 Client 的路由 token>
+#   （或加 -e KEYWARD_SINGLE_TENANT=1 跑个人单 Client 节点，那样随便什么 key 都行）
 ```
 
 换个命令就能切到 Client 角色——在 Owner 的机器上跑一个常驻 Client，把 key 以环境变量机密的形式传进去：

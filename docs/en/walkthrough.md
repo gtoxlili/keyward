@@ -26,8 +26,8 @@ then `curl` it like you would OpenAI.
 
 ```sh
 # Terminal 1 — the Node (rendezvous). Holds no key. Listens for a Client on :8787 and
-# serves an OpenAI-compatible front on :8088.
-cargo run --features node -- node
+# serves an OpenAI-compatible front on :8088. SINGLE_TENANT=1 → one Client, no token needed.
+KEYWARD_SINGLE_TENANT=1 cargo run --features node -- node
 # prints: clients dial in on ws://127.0.0.1:8787  (pairing_token=pt_dev_token)
 
 # Terminal 2 — the Client (you). Build with the openai adapter; key from keychain/env.
@@ -37,7 +37,8 @@ KEYWARD_NODE_URL=ws://127.0.0.1:8787 KEYWARD_PAIRING_TOKEN=pt_dev_token \
 ```
 
 Now drive it through the Node exactly as an unaware OpenAI app would — its base URL is just
-the Node, and any bearer routes to your single paired Client:
+the Node. In single-tenant mode any bearer routes to your one paired Client; a multi-tenant
+node would instead require that Client's routing token here:
 
 ```sh
 # Terminal 3 — the unaware "app": an ordinary OpenAI call.

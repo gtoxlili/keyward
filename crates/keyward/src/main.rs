@@ -108,7 +108,7 @@ fn print_usage() {
            keyward delete-key <p> remove provider <p>'s key from the OS keychain\n  \
            keyward identity      print this Client's identity pubkey (to be allow-listed)\n  \
            keyward node          run a Node: Clients dial in, requests routed by the API-key token (--features node)\n                        \
-             env: KEYWARD_LISTEN, KEYWARD_HTTP_LISTEN, KEYWARD_PAIRING_TOKEN\n  \
+             env: KEYWARD_LISTEN, KEYWARD_HTTP_LISTEN, KEYWARD_PAIRING_TOKEN, KEYWARD_SINGLE_TENANT\n  \
            keyward shim          requester-side shim: seals to the Client, relays via a blind Node (--features shim)\n                        \
              env: KEYWARD_SHIM_LISTEN, KEYWARD_NODE_URL, KEYWARD_ROUTE_TOKEN, KEYWARD_CLIENT_PUBKEY"
     );
