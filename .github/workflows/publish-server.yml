@@ -1,9 +1,12 @@
 name: Publish server image
 
 # Build the keyward server image (the proxy / orchestrator / executor binary) and
-# push it to GitHub Container Registry on every push to main that touches the
-# binary's sources or the Dockerfile. Tags: `latest`, a monotonic
-# `0.1.<commits touching the server>` version, and `sha-<short>` for exact pinning.
+# push a multi-arch (amd64 + arm64) manifest to GHCR on every push to main that
+# touches the binary's sources or the Dockerfile.
+#
+# Each arch builds NATIVELY (amd64 on ubuntu-latest, arm64 on ubuntu-24.04-arm —
+# free on public repos), pushes blobs by digest, then a merge job binds both under
+# the same tags. No QEMU: a rustc cross-build under emulation would be ~3× slower.
 #
 #   docker run -p 8088:8088 -p 8787:8787 ghcr.io/gtoxlili/keyward:latest
 
@@ -25,52 +28,119 @@ permissions:
   contents: read
   packages: write
 
+# A newer push cancels an in-flight multi-arch build — we rarely need a per-commit
+# image for an intermediate SHA (use workflow_dispatch if you do).
 concurrency:
-  group: publish-server
+  group: publish-server-${{ github.ref }}
   cancel-in-progress: true
 
 env:
-  IMAGE: ghcr.io/gtoxlili/keyward
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
 
 jobs:
-  publish:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v6
+
+      # Artifact names can't contain a slash: linux/amd64 -> linux-amd64.
+      - name: Prepare platform pair
+        run: |
+          platform='${{ matrix.platform }}'
+          echo "PLATFORM_PAIR=${platform//\//-}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Single-arch build, push by digest (no tag). The tags are written once in the
+      # merge job so both arches appear under them atomically — no half-pushed state.
+      - id: build
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: ${{ matrix.platform }}
+          # Cache scoped per ref + arch so the two arches don't poison each other's
+          # cargo-chef cook layer.
+          cache-from: type=gha,scope=${{ github.ref_name }}-${{ env.PLATFORM_PAIR }}
+          cache-to: type=gha,mode=max,scope=${{ github.ref_name }}-${{ env.PLATFORM_PAIR }}
+          outputs: type=image,name=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }},push-by-digest=true,name-canonical=true,push=true
+          provenance: false
+
+      - name: Export digest
+        run: |
+          mkdir -p "${{ runner.temp }}/digests"
+          digest='${{ steps.build.outputs.digest }}'
+          touch "${{ runner.temp }}/digests/${digest#sha256:}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: digests-${{ env.PLATFORM_PAIR }}
+          path: ${{ runner.temp }}/digests/*
+          if-no-files-found: error
+          retention-days: 1
+
+  # Bind the per-arch digests to the tags — registry-side manifest write, no layer
+  # re-upload, a few seconds.
+  merge:
+    needs: build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
-      - name: Resolve tags
-        id: meta
-        shell: bash
+      - name: Resolve version
+        id: count
         run: |
           set -euo pipefail
-          COUNT=$(git rev-list --count HEAD -- crates/keyward/ crates/keyward-proto/ crates/keyward-grpc/ Cargo.toml Cargo.lock Dockerfile)
-          {
-            echo "version=0.1.${COUNT}"
-            echo "sha=sha-${GITHUB_SHA::12}"
-          } >> "$GITHUB_OUTPUT"
+          N=$(git rev-list --count HEAD -- crates/keyward/ crates/keyward-proto/ crates/keyward-grpc/ Cargo.toml Cargo.lock Dockerfile)
+          echo "n=$N" >> "$GITHUB_OUTPUT"
+
+      - uses: actions/download-artifact@v4
+        with:
+          path: ${{ runner.temp }}/digests
+          pattern: digests-*
+          merge-multiple: true
 
       - uses: docker/setup-buildx-action@v3
 
-      - name: Log in to GHCR
-        uses: docker/login-action@v3
+      - uses: docker/login-action@v3
         with:
-          registry: ghcr.io
+          registry: ${{ env.REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build & push
-        uses: docker/build-push-action@v6
+      - id: meta
+        uses: docker/metadata-action@v5
         with:
-          context: .
-          file: Dockerfile
-          platforms: linux/amd64
-          push: true
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            ${{ env.IMAGE }}:latest
-            ${{ env.IMAGE }}:${{ steps.meta.outputs.version }}
-            ${{ env.IMAGE }}:${{ steps.meta.outputs.sha }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: false
+            type=raw,value=latest
+            type=raw,value=0.1.${{ steps.count.outputs.n }}
+            type=sha,format=short
+
+      - name: Create manifest list and push
+        working-directory: ${{ runner.temp }}/digests
+        run: |
+          # Word-splitting is intentional: expand the per-tag `-t` flags and the
+          # per-arch `@sha256:…` sources into separate args.
+          # shellcheck disable=SC2046
+          docker buildx imagetools create $(jq -cr '.tags | map("-t " + .) | join(" ")' <<< "$DOCKER_METADATA_OUTPUT_JSON") \
+            $(printf '${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}@sha256:%s ' *)
+
+      - name: Inspect
+        run: docker buildx imagetools inspect ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
