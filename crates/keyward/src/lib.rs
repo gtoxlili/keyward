@@ -9,6 +9,8 @@
 /// [`keyward_proto::Policy`] without a separate dependency.
 pub use keyward_proto;
 
+#[cfg(feature = "broker")]
+pub mod broker;
 pub mod demo;
 pub mod executor;
 pub mod identity;

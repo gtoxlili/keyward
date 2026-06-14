@@ -18,6 +18,7 @@ async fn main() -> anyhow::Result<()> {
         "delete-key" => delete_key_cli(),
         "identity" => identity_cli(),
         "proxy" => run_proxy().await,
+        "broker" => run_broker().await,
         "-h" | "--help" | "help" => {
             print_usage();
             Ok(())
@@ -38,6 +39,17 @@ async fn run_proxy() -> anyhow::Result<()> {
     #[cfg(not(feature = "proxy"))]
     {
         anyhow::bail!("`keyward proxy` needs a build with --features proxy")
+    }
+}
+
+async fn run_broker() -> anyhow::Result<()> {
+    #[cfg(feature = "broker")]
+    {
+        keyward::broker::run_cli().await
+    }
+    #[cfg(not(feature = "broker"))]
+    {
+        anyhow::bail!("`keyward broker` needs a build with --features broker")
     }
 }
 
@@ -96,6 +108,8 @@ fn print_usage() {
            keyward delete-key <p> remove provider <p>'s key from the OS keychain\n  \
            keyward identity      print this Executor's identity pubkey (to be allow-listed)\n  \
            keyward proxy         OpenAI-compatible HTTP proxy backed by a paired executor (--features proxy)\n                        \
+             env: KEYWARD_LISTEN, KEYWARD_PROXY_LISTEN, KEYWARD_PAIRING_TOKEN\n  \
+           keyward broker        multi-tenant broker: many executors, routed by the request's API-key token (--features broker)\n                        \
              env: KEYWARD_LISTEN, KEYWARD_PROXY_LISTEN, KEYWARD_PAIRING_TOKEN\n  \
            keyward orchestrator  serve a single-prompt mock Orchestrator\n                        \
              env: KEYWARD_LISTEN, KEYWARD_PAIRING_TOKEN, KEYWARD_PROVIDER, KEYWARD_MODEL,\n                        \

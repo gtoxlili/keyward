@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// Protocol major version. Carried as the string `"0"` for this draft (§2, §10).
+/// Protocol major version. Carried as the string `"0"` for this draft (§2, §11).
 pub const KW: &str = "0";
 
 /// A peer descriptor: who is on each end (§3).
@@ -88,6 +88,13 @@ pub enum Body {
         /// Executors.
         #[serde(skip_serializing_if = "Option::is_none")]
         sig: Option<String>,
+        /// Optional routing token the Executor advertises to a multi-tenant **broker**
+        /// (§10): the broker maps `route_token → this connection`, so a shared/public
+        /// Orchestrator can route a request — which carries the token in its bearer
+        /// header — to the right Executor. Absent ⇒ the broker derives a token from
+        /// `pubkey`. Ignored by a single-tenant Orchestrator.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        route_token: Option<String>,
     },
     /// Orchestrator → Executor: session opened (§3).
     ///
@@ -403,7 +410,7 @@ mod tests {
 
     #[test]
     fn unknown_fields_are_ignored() {
-        // Forward-compat (§2/§10): receivers must ignore unknown fields.
+        // Forward-compat (§2/§11): receivers must ignore unknown fields.
         let json = r#"{"kw":"0","type":"work_accepted","mid":"m","sid":"s","future_field":42}"#;
         let f: Frame = serde_json::from_str(json).unwrap();
         assert!(matches!(f.body, Body::WorkAccepted {}));

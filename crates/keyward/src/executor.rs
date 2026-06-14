@@ -351,6 +351,11 @@ fn hello_frame(cfg: &ExecutorConfig, pairing_token: &str) -> Frame {
             policy_digest: wire::policy_digest(&policy_canon),
             pubkey: Some(wire::hex(&cfg.identity.verifying_key().to_bytes())),
             sig: Some(identity::sign_detached(&cfg.identity, pairing_token.as_bytes())),
+            // Routing token for a multi-tenant broker (§8); the user puts the same
+            // value in their app's API-key slot. Single-tenant orchestrators ignore it.
+            route_token: std::env::var("KEYWARD_ROUTE_TOKEN")
+                .ok()
+                .filter(|s| !s.is_empty()),
         },
     )
 }

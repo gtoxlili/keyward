@@ -35,6 +35,10 @@ pub struct OrchestratorConfig {
     /// (`token → pubkey`). The same identity may re-present it (reconnect/resume);
     /// a different identity is refused.
     pub claimed_tokens: Arc<Mutex<HashMap<String, String>>>,
+    /// Enforce one-identity-per-token (the SaaS default). A multi-tenant **broker**
+    /// (§10) sets this `false`: one shared join-token admits many Executors, and
+    /// per-user isolation comes from the routing token + the Executor's own policy.
+    pub single_use_token: bool,
     /// Scripted intents: (provider, native request body without credential).
     pub intents: Vec<(String, Value)>,
 }
@@ -163,6 +167,7 @@ pub async fn run_cli() -> Result<()> {
         root: SigningKey::generate(&mut OsRng),
         authorized_executors,
         claimed_tokens: Default::default(),
+        single_use_token: true,
         intents: vec![(
             provider,
             json!({"model": model, "messages": [{"role": "user", "content": prompt}], "stream": true}),
@@ -234,8 +239,11 @@ pub(crate) fn authenticate_executor(hello: &Body, cfg: &OrchestratorConfig) -> R
         }
     }
     // Single-use: a token binds to one identity. The same identity may re-present
-    // it (reconnect/resume); a different one is refused.
-    if let Some(pk) = pubkey {
+    // it (reconnect/resume); a different one is refused. A broker disables this so one
+    // join-token can admit many Executors (§10).
+    if cfg.single_use_token
+        && let Some(pk) = pubkey
+    {
         let mut claimed = cfg.claimed_tokens.lock().unwrap();
         match claimed.get(pairing_token.as_str()) {
             Some(owner) if owner != pk => bail!("pairing token already bound to another executor"),
@@ -504,6 +512,7 @@ mod tests {
             root: SigningKey::generate(&mut OsRng),
             authorized_executors: authorized,
             claimed_tokens: Default::default(),
+            single_use_token: true,
             intents: vec![],
         }
     }
@@ -520,6 +529,7 @@ mod tests {
             policy_digest: "d".into(),
             pubkey: Some(wire::hex(&key.verifying_key().to_bytes())),
             sig: with_sig.then(|| crate::identity::sign_detached(key, token.as_bytes())),
+            route_token: None,
         }
     }
 

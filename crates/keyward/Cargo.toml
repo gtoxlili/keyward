@@ -61,6 +61,9 @@ anthropic = ["dep:reqwest"]
 # Local OpenAI-compatible proxy (`keyward proxy`) — the Orchestrator side with an
 # HTTP front. Pulls in axum.
 proxy = ["dep:axum"]
+# Multi-tenant broker (`keyward broker`) — a shared/public Orchestrator that routes
+# each request to the Executor matching its bearer routing token (§8).
+broker = ["dep:axum"]
 # gRPC transport for the Executor's dial-out (grpc:// / grpcs:// URLs). Pulls in
 # keyward-grpc (tonic/prost) and needs `protoc` at build time.
 grpc = ["dep:keyward-grpc"]

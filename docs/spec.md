@@ -290,7 +290,48 @@ Custody stops the key from leaking; **policy stops it from being abused.** Both 
   construction. Keyward is about custody of the *credential*, not confidentiality of the *content*.
   Do not rely on it for the latter.
 
-## 10. Versioning
+## 10. Broker / shared Orchestrator
+
+The Orchestrator role is not necessarily the SaaS. It decomposes into two jobs that the SaaS
+model happens to fuse: **the requester** (who submits work) and **the router** (who matches work
+to an Executor and relays it back). When they are fused, "which user?" is answered by the SaaS's
+own session. When they are not — a **shared/neutral broker** (a public-good "station") that many
+unrelated Owners point their apps and Executors at — the broker must be *told* which Executor a
+request is for. The protocol already permits this: the Executor dials out to any Orchestrator URL;
+the only missing piece is multi-tenant addressing.
+
+**Routing token.** Each Executor is addressed by a **routing token**, advertised in `hello`
+(`route_token`) or, absent that, derived by the broker from the Executor's identity `pubkey`. The
+broker keeps a `route_token → connection` registry. A request names its token **in the credential
+slot the app already sends** — `Authorization: Bearer <token>` (or `x-api-key: <token>`). So an
+OpenAI-compatible app stays unaware: to it this is just a base URL and an API key. (This is the
+WalletConnect pattern — a public relay routing by session topic — with the topic riding in the
+bearer header.) Responses are demultiplexed back to the waiting requester by `mid` (§5), exactly
+as a single-tenant Orchestrator.
+
+**The token is a capability, not a key.** It is *not* the provider credential — that never leaves
+the Executor, and the broker never sees it. And the Executor's policy (§6) still gates every call,
+so a leaked routing token can do no more than the policy already allows. A routing token is
+therefore far safer to hand an app than a real provider key, even though it sits in the same slot.
+
+**Pairing.** A broker admits many Executors under one shared join-token, so it does NOT enforce
+the single-use, one-identity-per-token binding a SaaS uses (§9); per-Owner isolation comes from
+the routing token plus each Executor's own policy. It MAY still authenticate Executor identities
+(§9) and allow-list them.
+
+**Trust spectrum.** A fully-app-unaware broker terminates TLS, so it sees prompts (never keys) —
+a "trust the operator" model, acceptable for many public stations and still fully non-custodial of
+the credential. To make the broker *blind* to content, move the small amount of awareness off the
+app and into a local shim that the unaware app talks to: the shim runs the inner Noise layer (§9)
+end-to-end to the Executor, and the broker routes ciphertext by token without decrypting it — the
+untrusted-relay case of §9, plus token routing. You can have *app-unaware*, *blind-broker*, and
+*routable* pairwise, but not all three at once without that shim.
+
+The reference broker is `keyward broker` (feature `broker`): many Executors dial in, each
+registering its routing token; an OpenAI-compatible HTTP front routes each request by its bearer
+token to the matching Executor.
+
+## 11. Versioning
 
 `kw` carries the major version. Within a major version, additions — new optional fields, new
 message types — are backward-compatible and receivers MUST ignore what they do not understand.
